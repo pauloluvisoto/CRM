@@ -1,0 +1,370 @@
+{
+    "name": "Instagram Integration - CRM Logic",
+    "nodes": [
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "instagram-webhook",
+                "options": {}
+            },
+            "name": "Webhook Instagram",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 1,
+            "position": [
+                0,
+                0
+            ]
+        },
+        {
+            "parameters": {
+                "tableId": "clients",
+                "operation": "getAll",
+                "limit": 1,
+                "filters": {
+                    "conditions": [
+                        {
+                            "key": "instagram_id",
+                            "value": "={{ $json.body.entry[0].messaging[0].sender.id }}",
+                            "operator": "equal"
+                        }
+                    ]
+                }
+            },
+            "name": "Check Client",
+            "type": "n8n-nodes-base.supabase",
+            "typeVersion": 1,
+            "position": [
+                220,
+                0
+            ]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "boolean": [
+                        {
+                            "value1": "={{ $json.id }}",
+                            "operator": "notEmpty"
+                        }
+                    ]
+                }
+            },
+            "name": "Client Exists?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 1,
+            "position": [
+                440,
+                0
+            ]
+        },
+        {
+            "parameters": {
+                "url": "=https://graph.facebook.com/v18.0/{{ $node[\"Webhook Instagram\"].json.body.entry[0].messaging[0].sender.id }}?fields=name,username,profile_picture_url&access_token=SEU_ACCESS_TOKEN_AQUI",
+                "method": "GET",
+                "authentication": "none"
+            },
+            "name": "Get IG Profile",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 1,
+            "position": [
+                660,
+                200
+            ]
+        },
+        {
+            "parameters": {
+                "tableId": "clients",
+                "operation": "create",
+                "fieldsUi": {
+                    "fieldValues": [
+                        {
+                            "fieldId": "company_name",
+                            "fieldValue": "={{ $json.name || $json.username }}"
+                        },
+                        {
+                            "fieldId": "instagram_id",
+                            "fieldValue": "={{ $json.id }}"
+                        },
+                        {
+                            "fieldId": "instagram_data",
+                            "fieldValue": "={{ JSON.stringify($json) }}"
+                        },
+                        {
+                            "fieldId": "image_url",
+                            "fieldValue": "={{ $json.profile_picture_url }}"
+                        },
+                        {
+                            "fieldId": "responsible",
+                            "fieldValue": "Robô Instagram"
+                        }
+                    ]
+                }
+            },
+            "name": "Create Client",
+            "type": "n8n-nodes-base.supabase",
+            "typeVersion": 1,
+            "position": [
+                880,
+                200
+            ]
+        },
+        {
+            "parameters": {
+                "tableId": "social_conversations",
+                "operation": "getAll",
+                "limit": 1,
+                "filters": {
+                    "conditions": [
+                        {
+                            "key": "contact_id",
+                            "value": "={{ $json.id }}",
+                            "operator": "equal"
+                        }
+                    ]
+                }
+            },
+            "name": "Check Conversation",
+            "type": "n8n-nodes-base.supabase",
+            "typeVersion": 1,
+            "position": [
+                1100,
+                0
+            ]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "boolean": [
+                        {
+                            "value1": "={{ $json.id }}",
+                            "operator": "notEmpty"
+                        }
+                    ]
+                }
+            },
+            "name": "Conversation Exists?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 1,
+            "position": [
+                1320,
+                0
+            ]
+        },
+        {
+            "parameters": {
+                "tableId": "social_conversations",
+                "operation": "create",
+                "fieldsUi": {
+                    "fieldValues": [
+                        {
+                            "fieldId": "contact_id",
+                            "fieldValue": "={{ $node[\"Check Client\"].json.id || $node[\"Create Client\"].json.id }}"
+                        },
+                        {
+                            "fieldId": "platform",
+                            "fieldValue": "instagram"
+                        },
+                        {
+                            "fieldId": "external_id",
+                            "fieldValue": "={{ $node[\"Webhook Instagram\"].json.body.entry[0].messaging[0].sender.id }}"
+                        },
+                        {
+                            "fieldId": "last_message",
+                            "fieldValue": "={{ $node[\"Webhook Instagram\"].json.body.entry[0].messaging[0].message.text }}"
+                        }
+                    ]
+                }
+            },
+            "name": "Create Conversation",
+            "type": "n8n-nodes-base.supabase",
+            "typeVersion": 1,
+            "position": [
+                1540,
+                200
+            ]
+        },
+        {
+            "parameters": {
+                "tableId": "social_conversations",
+                "operation": "update",
+                "matchType": "filter",
+                "fieldsUi": {
+                    "fieldValues": [
+                        {
+                            "fieldId": "last_message",
+                            "fieldValue": "={{ $node[\"Webhook Instagram\"].json.body.entry[0].messaging[0].message.text }}"
+                        },
+                        {
+                            "fieldId": "last_message_at",
+                            "fieldValue": "={{ new Date().toISOString() }}"
+                        }
+                    ]
+                },
+                "filters": {
+                    "conditions": [
+                        {
+                            "key": "id",
+                            "value": "={{ $json.id }}",
+                            "operator": "equal"
+                        }
+                    ]
+                }
+            },
+            "name": "Update Last Message",
+            "type": "n8n-nodes-base.supabase",
+            "typeVersion": 1,
+            "position": [
+                1540,
+                -100
+            ]
+        },
+        {
+            "parameters": {
+                "tableId": "social_messages",
+                "operation": "create",
+                "fieldsUi": {
+                    "fieldValues": [
+                        {
+                            "fieldId": "conversation_id",
+                            "fieldValue": "={{ $node[\"Check Conversation\"].json.id || $node[\"Create Conversation\"].json.id }}"
+                        },
+                        {
+                            "fieldId": "content",
+                            "fieldValue": "={{ $node[\"Webhook Instagram\"].json.body.entry[0].messaging[0].message.text }}"
+                        },
+                        {
+                            "fieldId": "direction",
+                            "fieldValue": "inbound"
+                        },
+                        {
+                            "fieldId": "external_id",
+                            "fieldValue": "={{ $node[\"Webhook Instagram\"].json.body.entry[0].messaging[0].message.mid }}"
+                        }
+                    ]
+                }
+            },
+            "name": "Create Message",
+            "type": "n8n-nodes-base.supabase",
+            "typeVersion": 1,
+            "position": [
+                1800,
+                100
+            ]
+        }
+    ],
+    "connections": {
+        "Webhook Instagram": {
+            "main": [
+                [
+                    {
+                        "node": "Check Client",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Check Client": {
+            "main": [
+                [
+                    {
+                        "node": "Client Exists?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Client Exists?": {
+            "main": [
+                [
+                    {
+                        "node": "Check Conversation",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Get IG Profile",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get IG Profile": {
+            "main": [
+                [
+                    {
+                        "node": "Create Client",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Create Client": {
+            "main": [
+                [
+                    {
+                        "node": "Check Conversation",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Check Conversation": {
+            "main": [
+                [
+                    {
+                        "node": "Conversation Exists?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Conversation Exists?": {
+            "main": [
+                [
+                    {
+                        "node": "Update Last Message",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Create Conversation",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Update Last Message": {
+            "main": [
+                [
+                    {
+                        "node": "Create Message",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Create Conversation": {
+            "main": [
+                [
+                    {
+                        "node": "Create Message",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    }
+}
