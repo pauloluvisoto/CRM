@@ -29,7 +29,7 @@ import {
     Target
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
-import StatCard from '../components/dashboard/StatCard';
+import StatCard from '../components/Dashboard/StatCard';
 import Column from '../components/Deals/Column';
 import NewDealModal from '../components/Deals/NewDealModal';
 import ImportModal from '../components/Import/ImportModal';

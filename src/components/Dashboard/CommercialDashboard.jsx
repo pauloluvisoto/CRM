@@ -1,305 +1,328 @@
-import React, { useState, useEffect } from 'react';
-import { Users, Activity, BarChart2, DollarSign, Target, TrendingUp } from 'lucide-react';
-import {
-    DndContext,
-    closestCenter,
-    KeyboardSensor,
-    PointerSensor,
-    useSensor,
-    useSensors,
-    DragOverlay
-} from '@dnd-kit/core';
-import {
-    arrayMove,
-    SortableContext,
-    sortableKeyboardCoordinates,
-    rectSortingStrategy,
-} from '@dnd-kit/sortable';
-import StatCard from './StatCard';
-import SortableStatCard from './SortableStatCard';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Settings, Save, LayoutDashboard, RefreshCw, DollarSign } from 'lucide-react';
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, rectSortingStrategy } from '@dnd-kit/sortable';
+import DraggableWidget from './DraggableWidget';
 import { getSyncColor } from '../../utils/colors';
 
-const CommercialDashboard = ({ stats, trends = {}, dashboardMode = 'all', goals = null, selectedPeriod = 'thisMonth' }) => {
-    const [cardOrder, setCardOrder] = useState(() => {
-        const saved = localStorage.getItem('commercial_dashboard_order');
-        const initial = saved ? JSON.parse(saved) : [
-            'meetings-done', 'conversion-rate', 'lead-to-meeting',
-            'no-show', 'meeting-to-sale', 'pipeline-value', 'sales-lost'
-        ];
-        return initial.filter(id => id !== 'new-leads');
-    });
+// Import Charts
+import SalesTrendChart from './Charts/SalesTrendChart';
+import PipelineFunnelChart from './Charts/PipelineFunnelChart';
+import SourceDistributionChart from './Charts/SourceDistributionChart';
+import ConversionRadialChart from './Charts/ConversionRadialChart';
+// import ActivityHeatmapChart from './Charts/ActivityHeatmapChart'; // REMOVED
+import CustomerGrowthChart from './Charts/CustomerGrowthChart';
+import RevenueTargetChart from './Charts/RevenueTargetChart';
+import RecentDealsList from './Charts/RecentDealsList';
 
-    const [cardConfigs, setCardConfigs] = useState(() => {
-        const saved = localStorage.getItem('commercial_dashboard_configs');
-        return saved ? JSON.parse(saved) : {};
-    });
+const DEFAULT_LAYOUT = [
+    { id: 'sales-trend', type: 'SALES_TREND', layout: { colSpan: { lg: 8 }, rowSpan: 1 } },
+    { id: 'revenue-target', type: 'REVENUE_TARGET', layout: { colSpan: { lg: 4 }, rowSpan: 1 } },
+    { id: 'pipeline-funnel', type: 'PIPELINE_FUNNEL', layout: { colSpan: { lg: 4 }, rowSpan: 2 } },
+    { id: 'source-dist', type: 'SOURCE_DIST', layout: { colSpan: { lg: 4 }, rowSpan: 1 } },
+    { id: 'recent-deals', type: 'RECENT_DEALS', layout: { colSpan: { lg: 4 }, rowSpan: 2 } },
+    // { id: 'activity-heatmap', type: 'ACTIVITY_HEATMAP', layout: { colSpan: { lg: 4 }, rowSpan: 1 } }, // REMOVED
+    { id: 'customer-growth', type: 'CUSTOMER_GROWTH', layout: { colSpan: { lg: 6 }, rowSpan: 1 } },
+    { id: 'conversion-radial', type: 'CONVERSION_RADIAL', layout: { colSpan: { lg: 6 }, rowSpan: 1 } },
+];
 
-    const [activeId, setActiveId] = useState(null);
+const formatCurrency = (value) => {
+    return new Intl.NumberFormat('pt-BR', {
+        style: 'currency',
+        currency: 'BRL'
+    }).format(value);
+};
+
+const CommercialDashboard = ({ stats, trends = {}, dashboardMode = 'all', goals = null, selectedPeriod = 'thisMonth', deals = [], pipelines = [], selectedPipeline = 'all', onPipelineChange }) => {
+
+    // --- STATE MANAGEMENT ---
+    const [isEditing, setIsEditing] = useState(false);
+    const [widgets, setWidgets] = useState(() => {
+        try {
+            const saved = localStorage.getItem('commercial_dashboard_layout_v2'); // Increment version to force reset if structure changed significantly
+            return saved ? JSON.parse(saved) : DEFAULT_LAYOUT;
+        } catch (e) {
+            return DEFAULT_LAYOUT;
+        }
+    });
 
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
         useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
     );
 
-    const updateCardConfig = (id, newConfig) => {
-        const updated = { ...cardConfigs, [id]: { ...(cardConfigs[id] || { mode: 'data', size: '1x1' }), ...newConfig } };
-        setCardConfigs(updated);
-        localStorage.setItem('commercial_dashboard_configs', JSON.stringify(updated));
-    };
+    // --- PERSISTENCE ---
+    useEffect(() => {
+        localStorage.setItem('commercial_dashboard_layout_v2', JSON.stringify(widgets));
+    }, [widgets]);
 
-    const getTrendLabel = () => {
-        switch (selectedPeriod) {
-            case '7d': return 'vs. 7d anteriores';
-            case 'thisMonth': return 'vs. mês anterior';
-            case 'thisYear': return 'vs. ano anterior';
-            case 'custom': return 'vs. período anterior';
-            default: return 'vs. período anterior';
+    const handleResetLayout = () => {
+        if (window.confirm('Restaurar layout padrão?')) {
+            setWidgets(DEFAULT_LAYOUT);
         }
     };
 
-    const formatCurrency = (value) => {
-        return new Intl.NumberFormat('pt-BR', {
-            style: 'currency',
-            currency: 'BRL',
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 0
-        }).format(value);
-    };
-
-    const getColColor = (id, fallback) => {
-        if (stats.columnColors && stats.columnColors[id]) {
-            return getSyncColor(stats.columnColors[id].name, stats.columnColors[id].color);
-        }
-        return getSyncColor(id, fallback);
-    };
-
-    const handleDragStart = (event) => setActiveId(event.active.id);
-
+    // --- HANDLERS ---
     const handleDragEnd = (event) => {
         const { active, over } = event;
         if (active.id !== over.id) {
-            setCardOrder((items) => {
-                const oldIndex = items.indexOf(active.id);
-                const newIndex = items.indexOf(over.id);
-                const newOrder = arrayMove(items, oldIndex, newIndex);
-                localStorage.setItem('commercial_dashboard_order', JSON.stringify(newOrder));
-                return newOrder;
+            setWidgets((items) => {
+                const oldIndex = items.findIndex(w => w.id === active.id);
+                const newIndex = items.findIndex(w => w.id === over.id);
+                return arrayMove(items, oldIndex, newIndex);
             });
         }
-        setActiveId(null);
     };
 
-    const getCardProps = (id) => {
-        const biScope = dashboardMode === 'inbound' ? 'inbound' :
-            dashboardMode === 'outbound' ? 'outbound' :
-                'total_bi';
+    const handleResize = (id, dimension) => {
+        setWidgets(items => items.map(w => {
+            if (w.id !== id) return w;
 
-        const bi = stats[biScope];
+            const newLayout = { ...w.layout };
 
-        const config = cardConfigs[id] || { mode: 'data', size: '1x1' };
+            if (dimension === 'width') {
+                // Cycle widths: 4 -> 6 -> 8 -> 12 -> 4
+                const current = newLayout.colSpan?.lg || 4;
+                const next = current === 4 ? 6 : current === 6 ? 8 : current === 8 ? 12 : 4;
+                newLayout.colSpan = { lg: next };
+            } else {
+                // Cycle heights: 1 -> 2 -> 1
+                const current = newLayout.rowSpan || 1;
+                newLayout.rowSpan = current === 1 ? 2 : 1;
+            }
 
-        const baseProps = {
-            id,
-            mode: config.mode,
-            size: config.size,
-            onConfigChange: (newConfig) => updateCardConfig(id, newConfig),
-            trendLabel: getTrendLabel()
-        };
+            return { ...w, layout: newLayout };
+        }));
+    };
 
-        const calcRate = (num, den) => {
-            if (!den || den === 0) return "0,00";
-            return ((num / den) * 100).toFixed(2).replace('.', ',');
-        };
+    // --- DATA PROCESSING (MEMOIZED) ---
+    // 1. Sales Trend Data
+    const salesTrendData = useMemo(() => {
+        if (!deals.length) return [];
+        const monthMap = {};
+        const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+        const today = new Date();
+        for (let i = 5; i >= 0; i--) {
+            const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+            const key = `${months[d.getMonth()]}`;
+            monthMap[key] = { name: key, value: 0, sortDate: d };
+        }
+        deals.forEach(d => {
+            const col = stats.columnColors?.[d.stage];
+            if (col?.status === 'won') {
+                const date = new Date(d.created_at);
+                const key = months[date.getMonth()];
+                if (monthMap[key]) monthMap[key].value += Number(d.faturamento_mensal) || 0;
+            }
+        });
+        return Object.values(monthMap).sort((a, b) => a.sortDate - b.sortDate);
+    }, [deals, stats]);
 
-        switch (id) {
-            case 'new-leads':
+    // 2. Revenue Target
+    const revenueTargetData = useMemo(() => {
+        return salesTrendData.map(item => ({
+            name: item.name,
+            revenue: item.value,
+            target: (goals?.revenue_goal / 12) || (item.value * 1.2)
+        }));
+    }, [salesTrendData, goals]);
+
+    // 3. Consolidated Funnels
+    const consolidatedFunnelsData = useMemo(() => {
+        if (!deals.length || !pipelines.length || !stats.columnColors) return [];
+        const targetPipelines = selectedPipeline === 'all' ? pipelines : pipelines.filter(p => p.id === selectedPipeline);
+
+        return targetPipelines.map(pipe => {
+            const stages = Object.values(stats.columnColors)
+                .filter(col => col.pipelineId == pipe.id)
+                .sort((a, b) => (a.position || 0) - (b.position || 0));
+            if (stages.length === 0) return null;
+
+            const data = stages.map(stage => {
+                const stageDeals = deals.filter(d => d.stage == stage.id);
+                const value = stageDeals.reduce((sum, d) => sum + (Number(d.faturamento_mensal) || 0), 0);
+
+                // SAFE NAME RESOLUTION
+                const rawName = stage.title || stage.name || `Stage ${stage.position}`;
+                const safeName = String(rawName);
+
                 return {
-                    ...baseProps,
-                    title: "Novos Leads",
-                    value: stats.newLeads,
-                    icon: Users,
-                    color: getColColor('receptivo_lead', '#3b82f6'),
-                    isHex: true,
-                    goal: goals?.leads_goal,
-                    trend: trends.newLeads?.trend,
-                    trendValue: trends.newLeads?.value,
-                    previousValue: (trends.newLeads?.prevValue || 0).toString()
+                    name: safeName,
+                    // Fix 1: Name + Count
+                    label: `${safeName} (${stageDeals.length})`,
+                    value: value,
+                    count: stageDeals.length,
+                    fill: stage.color,
+                    // Fix 2: Pass status for color override
+                    status: stage.status,
+                    customLabel: new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
                 };
-            case 'meetings-done':
+            });
+            return { id: pipe.id, name: pipe.name, data };
+        }).filter(Boolean);
+    }, [deals, pipelines, stats.columnColors, selectedPipeline]);
+
+    // 4. Source Distribution
+    const sourceData = useMemo(() => {
+        const counts = {};
+        deals.forEach(d => {
+            const origin = d.origem || 'Desconhecido';
+            counts[origin] = (counts[origin] || 0) + 1;
+        });
+        const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
+        return Object.entries(counts).map(([name, value], idx) => ({
+            name, value, fill: COLORS[idx % COLORS.length]
+        }));
+    }, [deals]);
+
+    // 5. Recent Deals (FIXED MAPPING & DAYS CALC)
+    const recentDealsData = useMemo(() => {
+        return deals
+            .filter(d => !!d.created_at)
+            .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+            .slice(0, 10)
+            .map((d, index) => {
+                // Fix 3: Map 'won' -> 'closed' for component compatibility
+                const rawStatus = stats.columnColors?.[d.stage]?.status;
+                let finalStatus = 'pending';
+                if (rawStatus === 'won') finalStatus = 'closed';
+                if (rawStatus === 'lost') finalStatus = 'lost';
+
+                // Fix 4: Calculate Days Open
+                const created = new Date(d.created_at);
+                const now = new Date();
+                const diffTime = Math.abs(now - created);
+                const daysOpen = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                // Date Formatting (DD/MM)
+                const formatDate = (dateStr) => {
+                    if (!dateStr) return null;
+                    const date = new Date(dateStr);
+                    return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+                };
+
+                const createdDate = formatDate(d.created_at);
+                const closedDate = formatDate(d.data_fechamento); // Use actual closing date
+
                 return {
-                    ...baseProps,
-                    title: "Reuniões Efetuadas",
-                    value: `${calcRate(bi?.meetings_done, bi?.meetings_total)}%`,
-                    icon: BarChart2,
-                    color: getSyncColor('REUNIÃO AGENDADA', '#6366f1'),
-                    isHex: true,
-                    goal: goals?.meetings_goal,
-                    numericValue: bi?.meetings_done || 0,
-                    subValue: `${bi?.meetings_done || 0} de ${bi?.meetings_total || 0}`,
-                    sideBySide: true,
-                    trend: trends[`${biScope}_meetings_done`]?.trend,
-                    trendValue: trends[`${biScope}_meetings_done`]?.value,
-                    previousValue: (trends[`${biScope}_meetings_done`]?.prevValue || 0).toString()
+                    id: d.id || index,
+                    client: d.empresa_cliente || 'Sem Nome',
+                    value: formatCurrency(d.faturamento_mensal || 0),
+                    status: finalStatus,
+                    daysOpen: daysOpen, // Number for the circle
+                    createdDate: createdDate,
+                    closedDate: closedDate,
+                    pipelineLabel: d.tipo_pipeline === 'Receptivo' ? 'Inbound' : d.tipo_pipeline === 'Ativo_Diagnostico' ? 'Outbound' : d.tipo_pipeline,
+                    subInfo: stats.columnColors?.[d.stage]?.title || d.stage
                 };
-            case 'conversion-rate':
-                return {
-                    ...baseProps,
-                    title: "TAXA DE CONVERSÃO GERAL",
-                    value: `${calcRate(stats.closedDeals, stats.newLeads)}%`,
-                    icon: Activity,
-                    color: getSyncColor('EM FOLLOW UP', '#a855f7'),
-                    isHex: true,
-                    numericValue: stats.closedDeals || 0,
-                    trend: trends.conversionRate?.trend,
-                    trendValue: trends.conversionRate?.value,
-                    subValue: `${stats.closedDeals || 0} de ${stats.newLeads || 0}`,
-                    sideBySide: true,
-                    previousValue: `${(trends.conversionRate?.prevValue || 0).toFixed(2).replace('.', ',')}%`
-                };
-            case 'lead-to-meeting':
-                return {
-                    ...baseProps,
-                    title: "AGENDAMENTOS EFETUADOS",
-                    value: `${Number(bi?.conv1 || 0).toFixed(2).replace('.', ',')}%`,
-                    icon: TrendingUp,
-                    color: dashboardMode === 'inbound' ? getColColor('receptivo_agendada', '#ec4899') :
-                        dashboardMode === 'outbound' ? getColColor('ativo_rvp', '#8b5cf6') : "#3b82f6",
-                    isHex: true,
-                    goal: goals?.lead_to_meeting_goal,
-                    subValue: `${bi?.meetings_total || 0} de ${bi?.count || 0}`,
-                    sideBySide: true,
-                    trend: trends[`${biScope}_conv1`]?.trend,
-                    trendValue: trends[`${biScope}_conv1`]?.value,
-                    previousValue: `${(trends[`${biScope}_conv1`]?.prevValue || 0).toFixed(2).replace('.', ',')}%`
-                };
-            case 'no-show':
-                return {
-                    ...baseProps,
-                    title: "Taxa de No-Show",
-                    value: `${Number(bi?.noshowRate || 0).toFixed(2).replace('.', ',')}%`,
-                    icon: Activity,
-                    color: getSyncColor('NO SHOW', '#ef4444'),
-                    isHex: true,
-                    goal: goals?.no_show_rate_goal,
-                    subValue: `${bi?.noshow || 0} de ${bi?.meetings_total || 0}`,
-                    sideBySide: true,
-                    trend: trends[`${biScope}_noshowRate`]?.trend,
-                    trendValue: trends[`${biScope}_noshowRate`]?.value,
-                    previousValue: `${(trends[`${biScope}_noshowRate`]?.prevValue || 0).toFixed(2).replace('.', ',')}%`
-                };
-            case 'meeting-to-sale':
-                return {
-                    ...baseProps,
-                    title: "NEGÓCIO FECHADO APÓS REUNIÃO",
-                    value: `${Number(bi?.conv2 || 0).toFixed(2).replace('.', ',')}%`,
-                    icon: Target,
-                    color: dashboardMode === 'inbound' ? getColColor('receptivo_fechamento', '#10b981') :
-                        dashboardMode === 'outbound' ? getColColor('ativo_followup', '#10b981') : "#10b981",
-                    isHex: true,
-                    goal: goals?.meeting_to_sale_goal,
-                    subValue: `${bi?.wonCount || 0} de ${bi?.meetings_done || 0}`,
-                    sideBySide: true,
-                    trend: trends[`${biScope}_conv2`]?.trend,
-                    trendValue: trends[`${biScope}_conv2`]?.value,
-                    previousValue: `${(trends[`${biScope}_conv2`]?.prevValue || 0).toFixed(2).replace('.', ',')}%`
-                };
-            case 'pipeline-value':
-                return {
-                    ...baseProps,
-                    title: "Leads em Pipeline",
-                    value: stats.newLeads || 0,
-                    icon: TrendingUp,
-                    color: "#3b82f6",
-                    isHex: true,
-                    subValue: formatCurrency(stats.forecast || 0),
-                    sideBySide: true,
-                    trend: trends.forecast?.trend,
-                    trendValue: trends.forecast?.value,
-                    previousValue: (trends.newLeads?.prevValue || 0).toString()
-                };
-            case 'sales-lost':
-                return {
-                    ...baseProps,
-                    title: "Vendas Perdidas",
-                    value: formatCurrency(stats.lostRevenue || 0),
-                    icon: DollarSign,
-                    color: "#ef4444",
-                    isHex: true,
-                    subValue: `${stats.lostDeals || 0} Negócios perdidos`,
-                    trend: trends.lostRevenue?.trend,
-                    trendValue: trends.lostRevenue?.value,
-                    previousValue: formatCurrency(trends.lostRevenue?.prevValue || 0)
-                };
+            });
+    }, [deals, stats.columnColors]);
+
+    // 8. Customer Growth
+    const customerGrowthData = useMemo(() => salesTrendData.map(item => ({ name: item.name, total: Math.floor(item.value / 1000) })), [salesTrendData]);
+
+
+    // --- RENDER HELPERS ---
+    const renderWidgetContent = (type) => {
+        switch (type) {
+            case 'SALES_TREND': return <SalesTrendChart data={salesTrendData} />;
+            case 'REVENUE_TARGET': return <RevenueTargetChart data={revenueTargetData} />;
+            case 'PIPELINE_FUNNEL':
+                return (
+                    <div className="flex flex-col gap-6 overflow-y-auto max-h-[520px] pr-2 custom-scrollbar h-full">
+                        {consolidatedFunnelsData.length > 0 ? (
+                            consolidatedFunnelsData.map((funnel) => (
+                                <div key={funnel.id} className="w-full">
+                                    <PipelineFunnelChart data={funnel.data} title={`Funil: ${funnel.name}`} />
+                                </div>
+                            ))
+                        ) : (
+                            <PipelineFunnelChart data={[]} title="Funil de Vendas" />
+                        )}
+                    </div>
+                );
+            case 'SOURCE_DIST': return <SourceDistributionChart data={sourceData} />;
+            case 'RECENT_DEALS': return <RecentDealsList data={recentDealsData} />;
+
+            case 'CUSTOMER_GROWTH': return <CustomerGrowthChart data={customerGrowthData} />;
+            case 'CONVERSION_RADIAL':
+                return <ConversionRadialChart
+                    data={[
+                        { name: 'Visitantes', uv: (stats.newLeads || 0) * 8, fill: '#1a3322' },
+                        { name: 'Leads', uv: stats.newLeads || 0, fill: '#52525b' },
+                        { name: 'Clientes', uv: stats.closedDeals || 0, fill: '#b4f03a' },
+                    ]}
+                />;
             default: return null;
         }
     };
 
-    const sectionTitle = dashboardMode === 'all' ? 'Performance Geral (Consolidado)' :
-        dashboardMode === 'inbound' ? 'Performance Inbound (Lead \u2192 RVP \u2192 Ganho)' :
-            'Performance Outbound (Prospect \u2192 RVP \u2192 Ganho)';
-
     return (
-        <div className="dashboard-grid">
-            <h3 className="section-header">{sectionTitle}</h3>
+        <div className="flex flex-col gap-6">
 
+            {/* --- DASHBOARD HEADER & CONTROLS --- */}
+            <div className="flex justify-between items-end">
+                <div>
+                    <h1 className="text-3xl font-extrabold text-white tracking-tight">Dashboard Comercial</h1>
+                    <p className="text-text-secondary text-sm">Visão geral da performance e indicadores chave.</p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                    {/* Controls */}
+                    {isEditing && (
+                        <button
+                            onClick={handleResetLayout}
+                            className="p-2 text-xs flex items-center gap-2 bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/30 rounded-lg transition-colors"
+                        >
+                            <RefreshCw size={14} /> Restaurar Padrão
+                        </button>
+                    )}
+
+                    <button
+                        onClick={() => setIsEditing(!isEditing)}
+                        className={`
+                            flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all
+                            ${isEditing
+                                ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
+                                : 'bg-white/5 text-white/70 hover:bg-white/10 border border-white/5'}
+                        `}
+                    >
+                        {isEditing ? (
+                            <> <Save size={16} /> Salvar Layout </>
+                        ) : (
+                            <> <Settings size={16} /> Editar Dashboard </>
+                        )}
+                    </button>
+                </div>
+            </div>
+
+            {/* --- DYNAMIC GRID --- */}
             <DndContext
                 sensors={sensors}
                 collisionDetection={closestCenter}
-                onDragStart={handleDragStart}
                 onDragEnd={handleDragEnd}
             >
-                <SortableContext items={cardOrder} strategy={rectSortingStrategy}>
-                    <div className="stats-grid">
-                        {cardOrder.map(id => {
-                            const props = getCardProps(id);
-                            if (!props) return null;
-                            return <SortableStatCard key={id} {...props} />;
-                        })}
+                <SortableContext items={widgets.map(w => w.id)} strategy={rectSortingStrategy}>
+                    <div className="grid grid-cols-12 gap-6 auto-rows-[250px]">
+                        {widgets.map((widget) => (
+                            /* Force remove activity-heatmap from render if it remained in state somehow */
+                            widget.id !== 'activity-heatmap' && (
+                                <DraggableWidget
+                                    key={widget.id}
+                                    id={widget.id}
+                                    layout={widget.layout}
+                                    isEditing={isEditing}
+                                    onResize={handleResize}
+                                >
+                                    {renderWidgetContent(widget.type)}
+                                </DraggableWidget>
+                            )
+                        ))}
                     </div>
                 </SortableContext>
-                <DragOverlay>
-                    {activeId && getCardProps(activeId) ? <StatCard {...getCardProps(activeId)} /> : null}
-                </DragOverlay>
             </DndContext>
 
-            <style>{`
-                .dashboard-grid {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 1.5rem;
-                }
-                .section-header {
-                    font-size: 0.95rem;
-                    color: var(--text-secondary);
-                    text-transform: uppercase;
-                    letter-spacing: 0.2em;
-                    font-weight: 800;
-                    display: flex;
-                    align-items: center;
-                    gap: 1.5rem;
-                    padding-bottom: 0.5rem;
-                    margin-top: 0.5rem;
-                }
-                .section-header::after {
-                    content: '';
-                    flex: 1;
-                    height: 1px;
-                    background: linear-gradient(90deg, rgba(255,255,255,0.1), transparent);
-                }
-                .stats-grid {
-                    display: grid;
-                    grid-template-columns: repeat(12, 1fr);
-                    grid-auto-rows: 1fr;
-                    gap: 1.5rem;
-                }
-                .sortable-stat-card { grid-column: span 3; } /* Default 1x (3/12) -> 4 per row */
-                .sortable-stat-card.size-1-3x1 { grid-column: span 4; } /* 1.3x (4/12) -> 3 per row (Uniform) */
-                .sortable-stat-card.size-1-5x1 { grid-column: span 4; } /* Mapping 1.5 to 4 as well for safety */
-                .sortable-stat-card.size-2x1 { grid-column: span 6; } /* 2x (6/12) -> 2 per row */
-                .sortable-stat-card.size-3x1 { grid-column: span 9; } /* 3x (9/12) */
-                .sortable-stat-card.size-4x1 { grid-column: span 12; } /* 4x (12/12) -> Full */
-                .sortable-stat-card.size-8x1 { grid-column: span 12; } /* 8x (12/12) -> Full */
-            `}</style>
+            <div className="pb-8"></div>
         </div>
     );
 };

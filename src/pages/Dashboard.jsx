@@ -3,10 +3,10 @@ import { useAuth } from '../contexts/AuthContext';
 import { getAccessibleUserIds } from '../utils/rbac';
 import { supabase } from '../lib/supabaseClient';
 import CommercialDashboard from '../components/Dashboard/CommercialDashboard';
-import FinancialDashboard from '../components/Dashboard/FinancialDashboard';
+
 import PeriodFilter from '../components/Dashboard/PeriodFilter';
 import GoalsModal from '../components/Dashboard/GoalsModal';
-import { Target, Filter, ChevronDown } from 'lucide-react';
+import { Target, Filter, ChevronDown, Zap } from 'lucide-react';
 
 const PRODUCT_VALUE = 597;
 
@@ -44,6 +44,7 @@ const Dashboard = () => {
 
     const [chartData, setChartData] = useState([]);
     const [trends, setTrends] = useState({});
+    const [deals, setDeals] = useState([]);
     const [previousStats, setPreviousStats] = useState(null);
 
     useEffect(() => {
@@ -250,15 +251,19 @@ const Dashboard = () => {
                 query = query.in('created_by', accessibleIds);
             }
 
-            if (dateRange.start) {
-                query = query.gte('created_at', dateRange.start.toISOString());
-            }
-            if (dateRange.end) {
-                query = query.lte('created_at', dateRange.end.toISOString());
-            }
+            // FETCH ALL DEALS (Client-side filtering for flexibility with retroactive dates)
+            // if (dateRange.start) {
+            //     query = query.gte('created_at', dateRange.start.toISOString());
+            // }
+            // if (dateRange.end) {
+            //     query = query.lte('created_at', dateRange.end.toISOString());
+            // }
 
-            const { data: deals, error: dError } = await query;
+            const { data: fetchedDeals, error: dError } = await query;
             if (dError) throw dError;
+
+            setDeals(fetchedDeals || []);
+            const deals = fetchedDeals || []; // Keep local reference for calculations
 
             // Fetch ALL columns for ID mapping and color binding - USING pipeline_stages
             const { data: columns, error: cError } = await supabase.from('pipeline_stages').select('*').order('position');
@@ -284,145 +289,167 @@ const Dashboard = () => {
 
             columns.forEach(c => {
                 const isLastCol = lastColIds.includes(c.id);
+                const nameStatus = getStatus(c.name);
+
+                // PRIORITY FIX: Checks 'lost' status via name FIRST. Only defaults to 'won' (last col) if actual status is not 'lost'.
                 colMap[c.id] = {
-                    title: c.name, // pipeline_stages uses 'name'
-                    status: isLastCol ? 'won' : getStatus(c.name),
+                    id: c.id,
+                    title: c.name,
+                    status: nameStatus === 'lost' ? 'lost' : (isLastCol ? 'won' : nameStatus),
                     color: c.color,
                     pipelineId: c.pipeline_id,
                     position: c.position
                 };
             });
 
-            // BI SPECIFIC AGGREGATION
-            let wonCount = 0; let wonValue = 0;
-            let lostCount = 0; let lostValue = 0;
-            let activeCount = 0; let activeValue = 0;
 
-            const BI_COUNTS = {
-                inbound_lead: 0,
-                inbound_meeting: 0,
-                inbound_noshow: 0,
-                inbound_won: 0,
-                outbound_prospect: 0,
-                outbound_meeting: 0,
-                outbound_noshow: 0,
-                outbound_won: 0
+            // BI SPECIFIC AGGREGATION
+            // HISTORY Accumulators (All Time)
+            let historyTotal = 0;
+            let historyWon = 0;
+
+            // PERIOD Accumulators (Selected Date Range)
+            let periodWonCount = 0; let periodWonValue = 0;
+            let periodLostCount = 0; let periodLostValue = 0;
+            let periodActiveCount = 0; let periodActiveValue = 0;
+
+            const PERIOD_BI = {
+                inbound_lead: 0, inbound_meeting: 0, inbound_noshow: 0, inbound_won: 0,
+                outbound_prospect: 0, outbound_meeting: 0, outbound_noshow: 0, outbound_won: 0
             };
 
             const meetingKeywords = ['agendada', 'reunião', 'rvp', 'meeting', 'visit', 'apresenta', 'diagnóstico'];
             const noShowKeywords = ['no show', 'nocompareceu', 'falta', 'ausente'];
 
+            // Define Period Range
+            const { start: dateStart, end: dateEnd } = dateRange;
+
             deals.forEach(d => {
                 const col = colMap[d.stage];
-                const val = Number(d.faturamento_mensal) || PRODUCT_VALUE; // Default to 597
+                const val = Number(d.faturamento_mensal) || PRODUCT_VALUE;
 
-                if (!col) {
-                    // Fail-safe for unknown stages (might be from deleted pipelines)
-                    return;
-                }
+                if (!col) return; // Skip unknown stages
 
-                // Global Dashboard Mode Filter
+                // Global Dashboard Mode Filter (Applies to both History and Period for consistency of scope)
                 if (dashboardMode === 'inbound' && d.tipo_pipeline !== 'Receptivo') return;
                 if (dashboardMode === 'outbound' && d.tipo_pipeline !== 'Ativo_Diagnostico') return;
-
-                // Selective pipeline view filter
                 if (selectedPipeline !== 'all' && col.pipelineId !== selectedPipeline) return;
 
-                // KPI Status Tracking
-                if (col.status === 'won') { wonCount++; wonValue += val; }
-                else if (col.status === 'lost') { lostCount++; lostValue += val; }
-                else { activeCount++; activeValue += val; }
-
-                // DYNAMIC BI MAPPING (Resilient to custom IDs)
-                const colTitle = (col.title || '').toLowerCase();
-                const isMeeting = meetingKeywords.some(k => colTitle.includes(k)) || (col.position >= 2 && col.position <= 5); // Heuristic for mid-funnel
-                const isNoShow = noShowKeywords.some(k => colTitle.includes(k));
                 const isWon = col.status === 'won';
+                const isLost = col.status === 'lost';
+                const colTitle = (col.title || '').toLowerCase();
 
-                // Categorize by Pipeline Type (matches central_vendas.tipo_pipeline)
+                // --- 1. HISTORICAL AGGREGATION (For Conversion Rate) ---
+                historyTotal++;
+                if (isWon) historyWon++;
+
+                // --- 2. PERIOD FILTER CHECK ---
+                const created = new Date(d.created_at);
+                const inPeriod = (!dateStart || created >= dateStart) && (!dateEnd || created <= dateEnd);
+
+                if (!inPeriod) return; // STOP here if not in selected period
+
+                // --- 3. PERIOD AGGREGATION (For Cards & Funnel) ---
+
+                // General Stats
+                if (isWon) { periodWonCount++; periodWonValue += val; }
+                else if (isLost) { periodLostCount++; periodLostValue += val; }
+                else { periodActiveCount++; periodActiveValue += val; }
+
+                // BI Specifics
+                const isMeeting = meetingKeywords.some(k => colTitle.includes(k)) || (col.position >= 2 && col.position <= 5);
+                const isNoShow = noShowKeywords.some(k => colTitle.includes(k));
+
                 if (d.tipo_pipeline === 'Receptivo') {
-                    BI_COUNTS.inbound_lead++;
-                    if (isMeeting || isNoShow || isWon) BI_COUNTS.inbound_meeting++;
-                    if (isNoShow) BI_COUNTS.inbound_noshow++;
-                    if (isWon) BI_COUNTS.inbound_won++;
+                    PERIOD_BI.inbound_lead++;
+                    if (isMeeting || isNoShow || isWon) PERIOD_BI.inbound_meeting++;
+                    if (isNoShow) PERIOD_BI.inbound_noshow++;
+                    if (isWon) PERIOD_BI.inbound_won++;
                 } else if (d.tipo_pipeline === 'Ativo_Diagnostico') {
-                    BI_COUNTS.outbound_prospect++;
-                    if (isMeeting || isNoShow || isWon) BI_COUNTS.outbound_meeting++;
-                    if (isNoShow) BI_COUNTS.outbound_noshow++;
-                    if (isWon) BI_COUNTS.outbound_won++;
+                    PERIOD_BI.outbound_prospect++;
+                    if (isMeeting || isNoShow || isWon) PERIOD_BI.outbound_meeting++;
+                    if (isNoShow) PERIOD_BI.outbound_noshow++;
+                    if (isWon) PERIOD_BI.outbound_won++;
                 }
             });
 
-            const totalDealsForCalc = deals.filter(d => {
-                const col = colMap[d.stage];
-                if (!col) return false;
-
-                // FILTER BY DASHBOARD MODE (Inbound/Outbound/All)
-                if (dashboardMode === 'inbound' && d.tipo_pipeline !== 'Receptivo') return false;
-                if (dashboardMode === 'outbound' && d.tipo_pipeline !== 'Ativo_Diagnostico') return false;
-
-                return (selectedPipeline === 'all' || col.pipelineId === selectedPipeline);
-            }).length;
-
-            // Calculate Conversions
+            // Calculate Conversions helper
             const calcConv = (b, a) => (a > 0 ? ((b / a) * 100).toFixed(1) : 0);
 
             setStats({
-                newLeads: BI_COUNTS.inbound_lead + BI_COUNTS.outbound_prospect,
-                activeDeals: activeCount,
-                closedDeals: wonCount,
-                lostDeals: lostCount,
-                totalRevenue: wonValue,
-                lostRevenue: lostValue,
-                avgTicket: wonCount > 0 ? (wonValue / wonCount) : 0,
-                forecast: activeValue,
-                conversionRate: totalDealsForCalc > 0 ? ((wonCount / totalDealsForCalc) * 100).toFixed(1) : 0,
+                // Period Stats
+                newLeads: PERIOD_BI.inbound_lead + PERIOD_BI.outbound_prospect,
+                activeDeals: periodActiveCount,
+                closedDeals: periodWonCount,
+                lostDeals: periodLostCount,
+                totalRevenue: periodWonValue,
+                lostRevenue: periodLostValue,
+                avgTicket: periodWonCount > 0 ? (periodWonValue / periodWonCount) : 0,
+                forecast: periodActiveValue,
+
+                // HISTORY Stats (Use history accumulators)
+                conversionRate: calcConv(historyWon, historyTotal),
+
                 inbound: {
-                    count: BI_COUNTS.inbound_lead,
-                    meetings_total: BI_COUNTS.inbound_meeting,
-                    conv1: calcConv(BI_COUNTS.inbound_meeting, BI_COUNTS.inbound_lead),
-                    noshow: BI_COUNTS.inbound_noshow,
-                    noshowRate: calcConv(BI_COUNTS.inbound_noshow, BI_COUNTS.inbound_meeting),
-                    meetings_done: BI_COUNTS.inbound_meeting - BI_COUNTS.inbound_noshow,
-                    wonCount: BI_COUNTS.inbound_won,
-                    conv2: calcConv(BI_COUNTS.inbound_won, (BI_COUNTS.inbound_meeting - BI_COUNTS.inbound_noshow))
+                    count: PERIOD_BI.inbound_lead,
+                    meetings_total: PERIOD_BI.inbound_meeting,
+                    conv1: calcConv(PERIOD_BI.inbound_meeting, PERIOD_BI.inbound_lead),
+                    noshow: PERIOD_BI.inbound_noshow,
+                    noshowRate: calcConv(PERIOD_BI.inbound_noshow, PERIOD_BI.inbound_meeting),
+                    meetings_done: PERIOD_BI.inbound_meeting - PERIOD_BI.inbound_noshow,
+                    wonCount: PERIOD_BI.inbound_won,
+                    conv2: calcConv(PERIOD_BI.inbound_won, (PERIOD_BI.inbound_meeting - PERIOD_BI.inbound_noshow))
                 },
                 outbound: {
-                    count: BI_COUNTS.outbound_prospect,
-                    meetings_total: BI_COUNTS.outbound_meeting,
-                    conv1: calcConv(BI_COUNTS.outbound_meeting, BI_COUNTS.outbound_prospect),
-                    noshow: BI_COUNTS.outbound_noshow,
-                    noshowRate: calcConv(BI_COUNTS.outbound_noshow, BI_COUNTS.outbound_meeting),
-                    meetings_done: BI_COUNTS.outbound_meeting - BI_COUNTS.outbound_noshow,
-                    wonCount: BI_COUNTS.outbound_won,
-                    conv2: calcConv(BI_COUNTS.outbound_won, (BI_COUNTS.outbound_meeting - BI_COUNTS.outbound_noshow))
+                    count: PERIOD_BI.outbound_prospect,
+                    meetings_total: PERIOD_BI.outbound_meeting,
+                    conv1: calcConv(PERIOD_BI.outbound_meeting, PERIOD_BI.outbound_prospect),
+                    noshow: PERIOD_BI.outbound_noshow,
+                    noshowRate: calcConv(PERIOD_BI.outbound_noshow, PERIOD_BI.outbound_meeting),
+                    meetings_done: PERIOD_BI.outbound_meeting - PERIOD_BI.outbound_noshow,
+                    wonCount: PERIOD_BI.outbound_won,
+                    conv2: calcConv(PERIOD_BI.outbound_won, (PERIOD_BI.outbound_meeting - PERIOD_BI.outbound_noshow))
                 },
                 total_bi: {
-                    count: BI_COUNTS.inbound_lead + BI_COUNTS.outbound_prospect,
-                    wonCount: BI_COUNTS.inbound_won + BI_COUNTS.outbound_won,
-                    noshow: BI_COUNTS.inbound_noshow + BI_COUNTS.outbound_noshow,
-                    meetings_total: (BI_COUNTS.inbound_meeting + BI_COUNTS.outbound_meeting),
-                    meetings_done: (BI_COUNTS.inbound_meeting + BI_COUNTS.outbound_meeting) - (BI_COUNTS.inbound_noshow + BI_COUNTS.outbound_noshow),
-                    conv1: calcConv(BI_COUNTS.inbound_meeting + BI_COUNTS.outbound_meeting, BI_COUNTS.inbound_lead + BI_COUNTS.outbound_prospect),
-                    noshowRate: calcConv(BI_COUNTS.inbound_noshow + BI_COUNTS.outbound_noshow, BI_COUNTS.inbound_meeting + BI_COUNTS.outbound_meeting),
-                    conv2: calcConv(BI_COUNTS.inbound_won + BI_COUNTS.outbound_won, (BI_COUNTS.inbound_meeting + BI_COUNTS.outbound_meeting) - (BI_COUNTS.inbound_noshow + BI_COUNTS.outbound_noshow))
+                    count: PERIOD_BI.inbound_lead + PERIOD_BI.outbound_prospect,
+                    wonCount: PERIOD_BI.inbound_won + PERIOD_BI.outbound_won,
+                    noshow: PERIOD_BI.inbound_noshow + PERIOD_BI.outbound_noshow,
+                    meetings_total: (PERIOD_BI.inbound_meeting + PERIOD_BI.outbound_meeting),
+                    meetings_done: (PERIOD_BI.inbound_meeting + PERIOD_BI.outbound_meeting) - (PERIOD_BI.inbound_noshow + PERIOD_BI.outbound_noshow),
+                    conv1: calcConv(PERIOD_BI.inbound_meeting + PERIOD_BI.outbound_meeting, PERIOD_BI.inbound_lead + PERIOD_BI.outbound_prospect),
+                    noshowRate: calcConv(PERIOD_BI.inbound_noshow + PERIOD_BI.outbound_noshow, PERIOD_BI.inbound_meeting + PERIOD_BI.outbound_meeting),
+                    conv2: calcConv(PERIOD_BI.inbound_won + PERIOD_BI.outbound_won, (PERIOD_BI.inbound_meeting + PERIOD_BI.outbound_meeting) - (PERIOD_BI.inbound_noshow + PERIOD_BI.outbound_noshow))
                 },
-                columnColors: colMap // Access to colors
+                columnColors: colMap
             });
 
-            // CHART DATA: Value by Stage
-            // BUILD FLOW / FUNNEL DATA (Deduplicated)
+            // CHART DATA: Value by Stage (PERIOD ONLY)
             const uniqueCols = Array.from(new Map(columns.map(c => [c.id, c])).values());
 
             const flowStages = uniqueCols
                 .filter(c => selectedPipeline === 'all' || c.pipeline_id === selectedPipeline)
                 .map(c => {
-                    const stageDeals = deals.filter(d => d.stage === c.id);
+                    // Filter deals belonging to this stage AND within Period
+                    const stageDeals = deals.filter(d => {
+                        const created = new Date(d.created_at);
+                        const inPeriod = (!dateStart || created >= dateStart) && (!dateEnd || created <= dateEnd);
+                        // Mode filter
+                        if (dashboardMode === 'inbound' && d.tipo_pipeline !== 'Receptivo') return false;
+                        if (dashboardMode === 'outbound' && d.tipo_pipeline !== 'Ativo_Diagnostico') return false;
+
+                        return d.stage === c.id && inPeriod;
+                    });
+
                     const stageValue = stageDeals.reduce((sum, d) => sum + (parseFloat(d.faturamento_mensal) || 0), 0);
+                    const compactValue = new Intl.NumberFormat('pt-BR', { notation: "compact", maximumFractionDigits: 1 }).format(stageValue);
+
                     return {
                         id: c.id + '-' + c.pipeline_id,
                         label: c.name,
-                        value: stageValue
+                        value: stageValue,
+                        dealCount: stageDeals.length,
+                        customLabel: `R$ ${compactValue} (${stageDeals.length})`,
+                        status: colMap[c.id]?.status // Pass status for coloring
                     };
                 });
 
@@ -430,6 +457,95 @@ const Dashboard = () => {
 
         } catch (error) {
             console.error('Error fetching dashboard data:', error);
+        } finally {
+            setLoading(false);
+            if (loading) setLoading(false);
+        }
+    };
+
+    const handleSimulateData = async () => {
+        if (!confirm('ATENÇÃO: Isso apagará TODOS os dados e gerará 100 negócios distribuídos por TODAS as etapas (Valor R$ 597). Deseja continuar?')) return;
+        setLoading(true);
+        try {
+            // 1. Clear existing data
+            const { error: deleteError } = await supabase.from('central_vendas').delete().not('id', 'is', null);
+            if (deleteError) throw deleteError;
+
+            // 2. FETCH REAL STAGE IDs
+            const { data: stagesData, error: sError } = await supabase.from('pipeline_stages').select('*').order('position');
+            if (sError) throw sError;
+
+            // Get All Pipelines
+            const { data: pipelinesData, error: pError } = await supabase.from('pipelines').select('*');
+            if (pError) throw pError;
+
+            if (stagesData.length === 0 || pipelinesData.length === 0) {
+                alert('Erro: Pipelines ou Estágios não encontrados.');
+                return;
+            }
+
+            // 3. GENERATE DEAL LOGIC (100 DEALS)
+            const dealsToInsert = [];
+            const userId = user.id;
+            const originsInbound = ['Google', 'Instagram', 'Indicação', 'Linkedin'];
+            const TOTAL_DEALS = 100;
+
+            // Helper to get random item from array
+            const getRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+            for (let i = 0; i < TOTAL_DEALS; i++) {
+                // Randomly select a pipeline
+                const pipeline = getRandom(pipelinesData);
+
+                // Randomly select a stage from that pipeline
+                const pipeStages = stagesData.filter(s => s.pipeline_id === pipeline.id);
+                if (pipeStages.length === 0) continue;
+                const stage = getRandom(pipeStages);
+
+                // Determine type based on pipeline name
+                const isInbound = pipeline.name.toLowerCase().includes('receptivo') || pipeline.name.toLowerCase().includes('inbound');
+                const dealType = isInbound ? 'Inbound' : 'Outbound';
+                const pipelineType = isInbound ? 'Receptivo' : 'Ativo_Diagnostico';
+
+                // Determine Logic for Won/Lost/Date
+                // Heuristic: If stage name contains 'ganho'/'won' -> Won. If 'perdido'/'lost' -> Lost.
+                const stageName = (stage.title || stage.name || '').toLowerCase();
+                const isWon = stageName.includes('ganho') || stageName.includes('won') || stageName.includes('fechad') || stageName.includes('vendido');
+
+                // Dates: Distribute between This Month (Active/New) and Past Months (Historical - mostly Won/Lost)
+                // 70% Recent (0-30 days), 30% Old (30-90 days)
+                const isOld = Math.random() > 0.7;
+                const date = new Date();
+                const daysBack = isOld ? Math.floor(Math.random() * 60) + 30 : Math.floor(Math.random() * 30);
+                date.setDate(date.getDate() - daysBack);
+
+                const origin = isInbound ? getRandom(originsInbound) : 'Prospecção Ativa';
+
+                dealsToInsert.push({
+                    empresa_cliente: `Cliente ${dealType} ${i + 1}`,
+                    nome_contato: `Contato Simul ${i + 1}`,
+                    faturamento_mensal: 597, // FIXED VALUE AS REQUESTED
+                    tipo_pipeline: pipelineType,
+                    stage: stage.id,
+                    created_by: userId,
+                    status_contrato: isWon ? 'Assinado' : 'Nao_Gerado',
+                    origem: origin,
+                    data_fechamento: isWon ? date.toISOString() : null,
+                    created_at: date.toISOString()
+                });
+            }
+
+            const { error } = await supabase.from('central_vendas').insert(dealsToInsert);
+
+            if (error) throw error;
+
+            alert('✅ SUCESSO! 100 Negócios gerados com valor R$ 597,00 em TODAS as etapas.');
+
+            fetchDashboardData();
+
+        } catch (error) {
+            console.error('Erro na simulação:', error);
+            alert('Erro ao simular dados: ' + error.message);
         } finally {
             setLoading(false);
         }
@@ -447,13 +563,13 @@ const Dashboard = () => {
     }
 
     return (
-        <div className="page-container dashboard-page">
-            <div className="page-header">
+        <div className="flex flex-col gap-6 w-full max-w-[1920px] mx-auto">
+            <div className="flex justify-between items-start mb-2">
                 <div className="flex flex-col gap-1">
-                    <h1>Dashboard</h1>
-                    <div className="pipeline-dropdown-container">
+
+                    <div className="relative mt-2 z-30">
                         <button
-                            className="pipeline-dropdown-btn"
+                            className="flex items-center gap-3 bg-white/5 border border-white/10 px-5 py-2.5 rounded-xl text-text-primary text-sm font-bold uppercase tracking-wide hover:bg-white/10 hover:border-white/20 hover:shadow-lg transition-all"
                             onClick={() => setShowPipelineDropdown(!showPipelineDropdown)}
                         >
                             <Filter size={16} />
@@ -466,25 +582,25 @@ const Dashboard = () => {
                             </span>
                             <ChevronDown
                                 size={14}
-                                style={{ transform: showPipelineDropdown ? 'rotate(180deg)' : 'none', transition: '0.2s' }}
+                                className={`transition-transform duration-200 ${showPipelineDropdown ? 'rotate-180' : ''}`}
                             />
                         </button>
 
                         {showPipelineDropdown && (
-                            <div className="pipeline-dropdown-menu">
-                                <div className="dropdown-section">CONSOLIDADO</div>
+                            <div className="absolute top-full left-0 mt-2 bg-background-secondary/95 border border-white/10 rounded-xl p-2 min-w-[240px] shadow-2xl flex flex-col gap-1 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200">
+                                <div className="text-[0.65rem] font-extrabold text-text-muted px-3 py-1 uppercase tracking-widest mt-1">CONSOLIDADO</div>
                                 <button
-                                    className={`dropdown-item ${dashboardMode === 'all' && selectedPipeline === 'all' ? 'active' : ''}`}
+                                    className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${dashboardMode === 'all' && selectedPipeline === 'all' ? 'bg-brand text-white font-bold shadow-lg shadow-brand/20' : 'text-text-secondary hover:bg-white/5 hover:text-white'}`}
                                     onClick={() => { setDashboardMode('all'); setSelectedPipeline('all'); setShowPipelineDropdown(false); }}
                                 >
                                     Visão Geral
                                 </button>
 
-                                <div className="dropdown-section">PIPELINES ESPECÍFICOS</div>
+                                <div className="text-[0.65rem] font-extrabold text-text-muted px-3 py-1 uppercase tracking-widest mt-2">PIPELINES ESPECÍFICOS</div>
                                 {pipelines.map(p => (
                                     <button
                                         key={p.id}
-                                        className={`dropdown-item ${selectedPipeline === p.id ? 'active' : ''}`}
+                                        className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${selectedPipeline === p.id ? 'bg-brand text-white font-bold shadow-lg shadow-brand/20' : 'text-text-secondary hover:bg-white/5 hover:text-white'}`}
                                         onClick={() => { setSelectedPipeline(p.id); setDashboardMode('all'); setShowPipelineDropdown(false); }}
                                     >
                                         {p.name}
@@ -497,7 +613,14 @@ const Dashboard = () => {
 
                 <div className="flex items-center gap-3">
                     <button
-                        className="btn-goals"
+                        className="flex items-center gap-2 bg-yellow-400/10 text-yellow-400 border border-yellow-400/20 px-4 py-2 rounded-xl text-sm font-bold hover:bg-yellow-400 hover:text-black hover:shadow-lg transition-all"
+                        onClick={handleSimulateData}
+                        title="Gerar 20 negócios de teste"
+                    >
+                        <Zap size={18} /> Simular Dados
+                    </button>
+                    <button
+                        className="flex items-center gap-2 bg-brand/10 text-brand border border-brand/20 px-4 py-2 rounded-xl text-sm font-bold hover:bg-brand hover:text-white hover:shadow-lg transition-all"
                         onClick={() => setShowGoalsModal(true)}
                         title="Definir Metas Mensais"
                     >
@@ -518,6 +641,9 @@ const Dashboard = () => {
                 userId={user?.id}
                 goals={userGoals}
                 onGoalsUpdated={(newGoals) => setUserGoals(newGoals)}
+                deals={deals}
+                pipelines={pipelines}
+                stages={Object.values(stats.columnColors || {}).map(c => ({ id: c.id, name: c.title, position: 0 }))}
             />
 
             <CommercialDashboard
@@ -530,138 +656,19 @@ const Dashboard = () => {
                 dashboardMode={dashboardMode}
                 goals={userGoals}
                 selectedPeriod={selectedPeriod}
+                deals={deals}
             />
 
-            <style>{`
-                .dashboard-page {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 1.5rem;
-                }
-                .page-header {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: flex-start;
-                    margin-bottom: 0.5rem;
-                }
-                .btn-goals {
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                    background: rgba(190, 242, 100, 0.1);
-                    color: #bef264;
-                    border: 1px solid rgba(190, 242, 100, 0.2);
-                    padding: 8px 16px;
-                    border-radius: 12px;
-                    font-size: 0.85rem;
-                    font-weight: 700;
-                    cursor: pointer;
-                    transition: all 0.2s ease;
-                }
-                .btn-goals:hover {
-                    background: #bef264;
-                    color: black;
-                    box-shadow: 0 4px 12px rgba(190, 242, 100, 0.2);
-                }
-                .pipeline-dropdown-container {
-                    position: relative;
-                    margin-top: 8px;
-                    z-index: 100;
-                }
-                .pipeline-dropdown-btn {
-                    display: flex;
-                    align-items: center;
-                    gap: 12px;
-                    background: rgba(255, 255, 255, 0.05);
-                    border: 1px solid rgba(255, 255, 255, 0.1);
-                    padding: 10px 20px;
-                    border-radius: 14px;
-                    color: var(--text-primary);
-                    font-size: 0.85rem;
-                    font-weight: 700;
-                    text-transform: uppercase;
-                    letter-spacing: 0.05em;
-                    cursor: pointer;
-                    transition: all 0.2s ease;
-                }
-                .pipeline-dropdown-btn:hover {
-                    background: rgba(255, 255, 255, 0.1);
-                    border-color: rgba(255, 255, 255, 0.2);
-                    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-                }
-                .pipeline-dropdown-menu {
-                    position: absolute;
-                    top: calc(100% + 8px);
-                    left: 0;
-                    background: #1a1b26;
-                    border: 1px solid rgba(255, 255, 255, 0.1);
-                    border-radius: 12px;
-                    padding: 8px;
-                    min-width: 240px;
-                    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-                    display: flex;
-                    flex-direction: column;
-                    gap: 4px;
-                    backdrop-filter: blur(10px);
-                }
-                .dropdown-section {
-                    font-size: 0.65rem;
-                    font-weight: 800;
-                    color: rgba(255, 255, 255, 0.3);
-                    padding: 8px 12px 4px 12px;
-                    text-transform: uppercase;
-                    letter-spacing: 0.1em;
-                }
-                .dropdown-item {
-                    padding: 10px 12px;
-                    border-radius: 8px;
-                    border: none;
-                    background: transparent;
-                    color: var(--text-secondary);
-                    font-size: 0.85rem;
-                    font-weight: 500;
-                    text-align: left;
-                    cursor: pointer;
-                    transition: all 0.2s ease;
-                }
-                .dropdown-item:hover {
-                    background: rgba(255, 255, 255, 0.05);
-                    color: white;
-                }
-                .dropdown-item.active {
-                    background: #bef264;
-                    color: #000;
-                    font-weight: 700;
-                }
-                .view-toggle {
-                    display: flex;
-                    background: linear-gradient(135deg, rgba(30, 30, 40, 0.6) 0%, rgba(20, 20, 30, 0.8) 100%);
-                    padding: 0.375rem;
-                    border-radius: 10px;
-                    border: 1px solid rgba(255, 255, 255, 0.1);
-                    backdrop-filter: blur(10px);
-                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-                }
-                .toggle-btn {
-                    padding: 0.625rem 1.25rem;
-                    border-radius: 8px;
-                    border: none;
-                    background: transparent;
-                    color: var(--text-secondary);
-                    font-weight: 600;
-                    cursor: pointer;
-                    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                }
-                .toggle-btn.active {
-                    background: linear-gradient(135deg, #bef264 0%, #a3e635 100%);
-                    color: #1a1a1a;
-                    box-shadow: 0 4px 12px rgba(190, 242, 100, 0.3);
-                }
-                .toggle-btn:hover:not(.active) {
-                    color: var(--text-primary);
-                    background: rgba(255, 255, 255, 0.05);
-                }
-            `}</style>
+            {/* DEBUG PANEL - TEMPORARY */}
+            <div className="p-4 bg-black/80 text-xs font-mono text-green-400 overflow-auto max-h-96 mt-10 rounded-xl border border-green-500/20">
+                <h3 className="font-bold mb-2">🔍 DEBUG DATA</h3>
+                <div>Pipelines: {pipelines.length}</div>
+                <div>Deals: {deals.length}</div>
+                <div>Deals (Sample): {JSON.stringify(deals.slice(0, 2).map(d => ({ st: d.stage, pipe: d.tipo_pipeline, val: d.faturamento_mensal })), null, 2)}</div>
+                <div className="mt-2">Stages Identificados: {stats.columnColors ? Object.keys(stats.columnColors).length : 0}</div>
+                <div>Stage IDs (Sample): {JSON.stringify(stats.columnColors ? Object.keys(stats.columnColors).slice(0, 5) : [], null, 2)}</div>
+            </div>
+
         </div>
     );
 };

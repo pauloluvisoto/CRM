@@ -1,12 +1,19 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 
+/* Tailwind CSS v4 Import */
+@import "tailwindcss";
+@config "../tailwind.config.js";
+
+/* ============================================
+   CSS CUSTOM PROPERTIES (Legacy Support)
+   Mantém compatibilidade com componentes antigos
+   ============================================ */
 :root {
   /* Colors - Recupera.ia Identity (Deep Green + Lime) */
   --bg-primary: #050a07;
-  /* Very deep green/black base */
   --bg-secondary: #0d1f12;
-  /* Rich dark green for cards/sidebars */
   --bg-hover: #142e1b;
+  --bg-card: #142e1b;
 
   --text-primary: #ffffff;
   --text-secondary: #a1a1aa;
@@ -14,10 +21,8 @@
   --text-inverted: #000000;
 
   --border-color: #1a3322;
-  /* Subtle green border */
 
   --primary: #b4f03a;
-  /* Neon Lime Green */
   --primary-hover: #a3d935;
   --primary-text: #000000;
 
@@ -39,6 +44,37 @@
   --radius-md: 8px;
 }
 
+/* ============================================
+   TAILWIND V4 CSS THEME (para @apply funcionar)
+   ============================================ */
+@theme {
+  --color-brand: #b4f03a;
+  --color-brand-hover: #a3d935;
+  --color-brand-dark: #1a3322;
+
+  --color-background-primary: #050a07;
+  --color-background-secondary: #0d1f12;
+  --color-background-card: #142e1b;
+  --color-background-hover: #1a3322;
+
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #a1a1aa;
+  --color-text-muted: #52525b;
+  --color-text-inverted: #000000;
+
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+
+  --shadow-neon: 0 0 10px rgba(180, 240, 58, 0.2), 0 0 20px rgba(180, 240, 58, 0.1);
+  --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+
+  --font-sans: 'Inter', system-ui, sans-serif;
+}
+
+/* ============================================
+   BASE STYLES
+   ============================================ */
 * {
   box-sizing: border-box;
   margin: 0;
@@ -72,14 +108,13 @@ button {
   font-family: inherit;
 }
 
-/* Utilities - Removed manual definitions to avoid conflicts with Tailwind */
-
-/* Layout classes */
+/* ============================================
+   LAYOUT CLASSES
+   ============================================ */
 .app-container {
   display: flex;
   height: 100vh;
   overflow: hidden;
-  /* background-color: var(--bg-primary); Remove this to let body background show */
 }
 
 .main-content {
@@ -88,7 +123,6 @@ button {
   flex-direction: column;
   overflow: hidden;
   background-color: transparent;
-  /* allow grid to show through */
 }
 
 .page-container {
@@ -97,7 +131,9 @@ button {
   height: 100%;
 }
 
-/* Scrollbar Customization */
+/* ============================================
+   SCROLLBAR CUSTOMIZATION
+   ============================================ */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -116,15 +152,62 @@ button {
   background: var(--border-color);
 }
 
-/* Common Components Overlay */
+/* ============================================
+   FORM INPUTS
+   ============================================ */
 input,
 select,
 textarea {
   background-color: var(--bg-secondary);
   color: var(--text-primary);
   border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
 }
 
 input::placeholder {
   color: var(--text-muted);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(180, 240, 58, 0.1);
+}
+
+/* ============================================
+   UTILITY CLASSES (Para componentes antigos)
+   ============================================ */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+/* Animate In (for modals/dropdowns) */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes zoomIn {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.animate-in {
+  animation: fadeIn 0.2s ease-out, zoomIn 0.2s ease-out;
+}
+
+.fade-in {
+  animation: fadeIn 0.2s ease-out;
+}
+
+.zoom-in-95 {
+  animation: zoomIn 0.2s ease-out;
 }
