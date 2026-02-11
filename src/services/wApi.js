@@ -588,6 +588,56 @@ export const wApi = {
         return await response.json();
     },
 
+    sendSticker: async (phone, stickerUrl, replyToId = null) => {
+        if (!INSTANCE_ID) throw new Error('Instance ID missing');
+
+        const body = {
+            phone,
+            sticker: stickerUrl,
+            delayMessage: 1
+        };
+
+        if (replyToId) body.messageId = replyToId;
+
+        const response = await fetch(`${BASE_URL}/message/send-sticker?instanceId=${INSTANCE_ID}`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify(body)
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.message || 'Error sending sticker');
+        }
+
+        return await response.json();
+    },
+
+    sendGif: async (phone, gifUrl, replyToId = null) => {
+        if (!INSTANCE_ID) throw new Error('Instance ID missing');
+
+        const body = {
+            phone,
+            gif: gifUrl,
+            delayMessage: 1
+        };
+
+        if (replyToId) body.messageId = replyToId;
+
+        const response = await fetch(`${BASE_URL}/message/send-gif?instanceId=${INSTANCE_ID}`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify(body)
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.message || 'Error sending gif');
+        }
+
+        return await response.json();
+    },
+
     readMessage: async (phone, messageId = null) => {
         if (!INSTANCE_ID) return;
 

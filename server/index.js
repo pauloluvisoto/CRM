@@ -191,23 +191,42 @@ app.post('/api/webhooks/wapi-received', async (req, res) => {
             phone = phone.split('@')[0];
         }
 
-        // 2. Parse Content
+        // 2. Parse Content & Media
         // W-API format seen in logs: body.msgContent
         let content = '';
-        if (body.msgContent) {
-            content = body.msgContent.conversation ||
-                body.msgContent.extendedTextMessage?.text ||
-                '';
-            if (!content && body.msgContent.imageMessage) content = '📷 Imagem';
-            if (!content && body.msgContent.audioMessage) content = '🎵 Áudio';
+        let mediaUrl = null;
+        let mediaType = 'text';
+
+        const msgSource = body.msgContent || body.message || {};
+
+        if (msgSource.conversation) {
+            content = msgSource.conversation;
+        } else if (msgSource.extendedTextMessage) {
+            content = msgSource.extendedTextMessage.text;
+        } else if (msgSource.imageMessage) {
+            mediaType = 'image';
+            content = msgSource.imageMessage.caption || '📷 Imagem';
+            mediaUrl = msgSource.imageMessage.url || msgSource.imageMessage.directPath || null;
+            // Sometimes it's base64 in jpegThumbnail, but usually url is better. 
+            // W-API often returns base64 in a different way or needs configuration.
+        } else if (msgSource.videoMessage) {
+            mediaType = msgSource.videoMessage.gifPlayback ? 'gif' : 'video';
+            content = msgSource.videoMessage.caption || (mediaType === 'gif' ? '🎞️ GIF' : '🎥 Vídeo');
+            mediaUrl = msgSource.videoMessage.url || msgSource.videoMessage.directPath || null;
+        } else if (msgSource.audioMessage) {
+            mediaType = 'audio';
+            content = '🎵 Áudio';
+            mediaUrl = msgSource.audioMessage.url || msgSource.audioMessage.directPath || null;
+        } else if (msgSource.stickerMessage) {
+            mediaType = 'sticker';
+            content = '👾 Figurinha';
+            mediaUrl = msgSource.stickerMessage.url || null;
+        } else if (msgSource.documentMessage) {
+            mediaType = 'document';
+            content = msgSource.documentMessage.fileName || 'Ei Arquivo';
+            mediaUrl = msgSource.documentMessage.url || null;
         } else {
-            // Legacy/Standard format
-            content = body.message?.conversation ||
-                body.message?.extendedTextMessage?.text ||
-                body.content ||
-                '';
-            if (!content && body.message?.imageMessage) content = '📷 Imagem';
-            if (!content && body.message?.audioMessage) content = '🎵 Áudio';
+            content = body.content || '';
         }
 
         // 3. Check Direction & ID
@@ -291,7 +310,9 @@ app.post('/api/webhooks/wapi-received', async (req, res) => {
                 content: content,
                 direction: direction,
                 external_id: messageId,
-                status: isFromMe ? 'sent' : 'delivered'
+                status: isFromMe ? 'sent' : 'delivered',
+                media_url: mediaUrl,
+                media_type: mediaType
             }]);
 
         if (msgError) throw msgError;

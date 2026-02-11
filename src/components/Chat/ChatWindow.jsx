@@ -176,7 +176,9 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
     const [isPaused, setIsPaused] = useState(false);
     const [recordingTime, setRecordingTime] = useState(0);
     const [audioBlob, setAudioBlob] = useState(null);
-    const [imageFile, setImageFile] = useState(null); // New Image State
+    const [imageFile, setImageFile] = useState(null);
+    const [videoFile, setVideoFile] = useState(null);
+    const [documentFile, setDocumentFile] = useState(null);
     const mediaRecorderRef = useRef(null);
     const timerRef = useRef(null);
     const chunksRef = useRef([]);
@@ -428,8 +430,14 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
 
     const handleImageSelect = (e) => {
         const file = e.target.files[0];
-        if (file && file.type.startsWith('image/')) {
-            setImageFile(file);
+        if (file) {
+            if (file.type.startsWith('image/')) {
+                setImageFile(file);
+            } else if (file.type.startsWith('video/')) {
+                setVideoFile(file);
+            } else {
+                setDocumentFile(file);
+            }
         }
         // Reset input so same file can be selected again if needed
         e.target.value = '';
@@ -454,6 +462,8 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
                     read_at: msg.read_at,
                     external_id: msg.external_id,
                     metadata: msg.metadata,
+                    media_url: msg.media_url,
+                    media_type: msg.media_type,
                     time: new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                 };
             });
@@ -494,6 +504,8 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
                     read_at: payload.new.read_at,
                     external_id: payload.new.external_id,
                     metadata: msgMetadata || {},
+                    media_url: payload.new.media_url,
+                    media_type: payload.new.media_type,
                     time: new Date(payload.new.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                     created_at: payload.new.created_at
                 };
@@ -634,7 +646,7 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
             } catch (videoError) {
                 console.warn('Video-phantom setup failed, falling back to audio-only:', videoError);
                 // Fallback: Pure Audio
-                const audioTypes = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'];
+                const audioTypes = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/webm', 'audio/mp4'];
                 for (const type of audioTypes) {
                     if (MediaRecorder.isTypeSupported(type)) {
                         mimeType = type;
@@ -652,6 +664,8 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
             };
 
             mediaRecorder.onstop = () => {
+                // Determine extension based on mimeType
+                // WhatsApp prefers OGG (Opus)
                 const blob = new Blob(chunksRef.current, { type: mimeType });
                 setAudioBlob(blob);
 
@@ -744,11 +758,17 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
         // Auto-detect type if not forced
         if (type === 'text') {
             if (audioBlob) type = 'audio';
-            if (imageFile) type = 'image';
+            if (imageFile) {
+                if (imageFile.type === 'image/gif') type = 'gif';
+                else if (imageFile.type === 'image/webp') type = 'sticker';
+                else type = 'image';
+            }
+            if (videoFile) type = 'video';
+            if (documentFile) type = 'document';
         }
 
         const content = contentOverride || messageInput;
-        if (!content && !audioBlob && !imageFile) return;
+        if (!content && !audioBlob && !imageFile && !videoFile && !documentFile) return;
 
         let finalContent = content;
         let metadata = replyTo ? { reply_to: replyTo } : {};
@@ -756,10 +776,13 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
         try {
             // Upload Logic
             if (type === 'audio' && audioBlob) {
-                const fileName = `audio_${Date.now()}.mp4`; // Keep compatible format
+                // Force .ogg extension for W-API compatibility
+                const fileName = `audio_${Date.now()}.ogg`;
                 const { data, error } = await supabase.storage
                     .from('chat-media')
-                    .upload(fileName, audioBlob);
+                    .upload(fileName, audioBlob, {
+                        contentType: 'audio/ogg' // Force content type
+                    });
                 if (error) throw error;
                 const { data: { publicUrl } } = supabase.storage
                     .from('chat-media')
@@ -786,7 +809,35 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
                     .from('chat-media')
                     .getPublicUrl(fileName);
                 finalContent = publicUrl;
-                metadata.type = 'image';
+                metadata.type = (imageFile.type === 'image/gif') ? 'gif' :
+                    (imageFile.type === 'image/webp') ? 'sticker' : 'image';
+            } else if (type === 'video' && videoFile) {
+                const fileExt = videoFile.name.split('.').pop() || 'mp4';
+                const fileName = `video_${Date.now()}.${fileExt}`;
+
+                const { error } = await supabase.storage
+                    .from('chat-media')
+                    .upload(fileName, videoFile, { contentType: videoFile.type });
+
+                if (error) throw error;
+                const { data: { publicUrl } } = supabase.storage
+                    .from('chat-media')
+                    .getPublicUrl(fileName);
+                finalContent = publicUrl;
+                metadata.type = 'video';
+            } else if (type === 'document' && documentFile) {
+                const fileName = `doc_${Date.now()}_${documentFile.name}`;
+                const { error } = await supabase.storage
+                    .from('chat-media')
+                    .upload(fileName, documentFile, { contentType: documentFile.type });
+
+                if (error) throw error;
+                const { data: { publicUrl } } = supabase.storage
+                    .from('chat-media')
+                    .getPublicUrl(fileName);
+                finalContent = publicUrl;
+                metadata.type = 'document';
+                metadata.filename = documentFile.name;
             }
         } catch (err) {
             console.error('Error uploading media:', err);
@@ -798,6 +849,8 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
         setMessageInput('');
         setAudioBlob(null);
         setImageFile(null);
+        setVideoFile(null);
+        setDocumentFile(null);
         setRecordingTime(0);
         setReplyTo(null);
         markAsRead(); // Mark all prev inbound as read when I reply
@@ -811,6 +864,8 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
             direction: 'outbound',
             read_at: null,
             metadata: { ...metadata, client_id: clientId, type },
+            media_url: type !== 'text' ? finalContent : null,
+            media_type: type,
             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             created_at: new Date().toISOString()
         };
@@ -818,7 +873,13 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
 
         // Optimistic Inbox Update
         const prefix = 'Você: ';
-        const msgPreview = type === 'text' ? finalContent : (type === 'audio' ? '🎵 Áudio' : '📷 Imagem');
+        let msgPreview = finalContent;
+        if (type === 'audio') msgPreview = '🎵 Áudio';
+        else if (type === 'image') msgPreview = '📷 Imagem';
+        else if (type === 'video') msgPreview = '🎥 Vídeo';
+        else if (type === 'document') msgPreview = '📄 Arquivo';
+        else if (type === 'gif') msgPreview = '🎞️ GIF';
+        else if (type === 'sticker') msgPreview = '👾 Figurinha';
         if (onMessageSent) onMessageSent(prefix + msgPreview);
 
         try {
@@ -838,7 +899,13 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
 
             // 2. Update Conversation Last Message with "Você:" and Reset Unread
             const prefix = 'Você: ';
-            const msgPreview = type === 'text' ? finalContent : (type === 'audio' ? '🎵 Áudio' : '📷 Imagem');
+            let msgPreview = finalContent;
+            if (type === 'audio') msgPreview = '🎵 Áudio';
+            else if (type === 'image') msgPreview = '📷 Imagem';
+            else if (type === 'video') msgPreview = '🎥 Vídeo';
+            else if (type === 'document') msgPreview = '📄 Arquivo';
+            else if (type === 'gif') msgPreview = '🎞️ GIF';
+            else if (type === 'sticker') msgPreview = '👾 Figurinha';
 
             const { error: convError } = await supabase
                 .from('social_conversations')
@@ -866,6 +933,14 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
                     await wApi.sendAudio(phone, finalContent, replyToId);
                 } else if (type === 'image') {
                     await wApi.sendImage(phone, finalContent, '', replyToId);
+                } else if (type === 'video') {
+                    await wApi.sendVideo(phone, finalContent, '', replyToId);
+                } else if (type === 'document') {
+                    await wApi.sendDocument(phone, finalContent, metadata.filename || 'document', replyToId);
+                } else if (type === 'sticker') {
+                    await wApi.sendSticker(phone, finalContent, replyToId);
+                } else if (type === 'gif') {
+                    await wApi.sendGif(phone, finalContent, replyToId);
                 }
             } else {
                 // Default to Instagram via n8n
@@ -935,11 +1010,24 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
 
                         // Robust Media Detection
                         const content = msg.content || '';
-                        const isAudio = msg.metadata?.type === 'audio' ||
-                            content.match(/\.(mp3|mp4|webm|m4a)(\?.*)?$/i);
 
-                        const isImage = msg.metadata?.type === 'image' ||
-                            content.match(/\.(jpg|jpeg|png|gif|webp)(\?.*)?$/i);
+                        // Prioritize database media_type/url
+                        const mediaType = msg.media_type || msg.metadata?.type;
+                        const mediaUrl = msg.media_url || (mediaType && mediaType !== 'text' ? msg.content : null);
+
+                        const isAudio = mediaType === 'audio' ||
+                            (!mediaType && content.match(/\.(mp3|mp4|webm|m4a|ogg|opus)(\?.*)?$/i));
+
+                        const isImage = mediaType === 'image' ||
+                            (!mediaType && content.match(/\.(jpg|jpeg|png|gif|webp)(\?.*)?$/i));
+
+                        const isSticker = mediaType === 'sticker';
+                        const isGif = mediaType === 'gif';
+                        const isVideo = mediaType === 'video' || (!mediaType && content.match(/\.(mp4|mov|avi)(\?.*)?$/i));
+                        const isDocument = mediaType === 'document';
+
+                        // Use mediaUrl for player/image if available, otherwise content
+                        const displaySrc = mediaUrl || content;
 
                         return (
                             <React.Fragment key={msg.id}>
@@ -949,10 +1037,10 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
                                         {isImage ? (
                                             <div className="image-bubble">
                                                 <img
-                                                    src={msg.content}
+                                                    src={displaySrc}
                                                     alt="Imagem"
                                                     className="chat-image-content"
-                                                    onClick={() => window.open(msg.content, '_blank')}
+                                                    onClick={() => window.open(displaySrc, '_blank')}
                                                 />
                                                 <div className="image-meta-overlay">
                                                     <div className="msg-footer">
@@ -965,6 +1053,62 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
                                                     </div>
                                                 </div>
                                             </div>
+                                        ) : isSticker ? (
+                                            <div className="image-bubble" style={{ background: 'transparent', boxShadow: 'none' }}>
+                                                <img
+                                                    src={displaySrc}
+                                                    alt="Sticker"
+                                                    className="chat-image-content"
+                                                    style={{ maxWidth: '150px' }}
+                                                />
+                                                <div className="msg-footer" style={{ position: 'absolute', bottom: 0, right: 0, padding: '4px', background: 'rgba(0,0,0,0.5)', borderRadius: '8px' }}>
+                                                    <span className="time" style={{ fontSize: '10px', color: 'white' }}>{msg.time}</span>
+                                                </div>
+                                            </div>
+                                        ) : (isGif || isVideo) ? (
+                                            <div className="message-bubble">
+                                                <video
+                                                    src={displaySrc}
+                                                    controls={!isGif}
+                                                    autoPlay={isGif}
+                                                    loop={isGif}
+                                                    muted={isGif}
+                                                    playsInline
+                                                    style={{ maxWidth: '100%', borderRadius: '12px' }}
+                                                />
+                                                <div className="msg-footer">
+                                                    <span className="time">{msg.time}</span>
+                                                    {msg.direction === 'inbound' && (
+                                                        <span className="status-icon">
+                                                            {msg.read_at ? <CheckCheck size={14} /> : <Check size={14} />}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ) : isDocument ? (
+                                            <div className="message-bubble" style={{ minWidth: '200px' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '4px' }}>
+                                                    <div style={{ background: 'rgba(255,255,255,0.1)', padding: '10px', borderRadius: '10px' }}>
+                                                        <FileText size={24} color="var(--primary)" />
+                                                    </div>
+                                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                                        <div style={{ fontWeight: 600, fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                            {msg.metadata?.filename || 'Arquivo'}
+                                                        </div>
+                                                        <a
+                                                            href={displaySrc}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            style={{ fontSize: '0.8rem', color: 'var(--primary)', textDecoration: 'none' }}
+                                                        >
+                                                            Baixar arquivo
+                                                        </a>
+                                                    </div>
+                                                </div>
+                                                <div className="msg-footer">
+                                                    <span className="time">{msg.time}</span>
+                                                </div>
+                                            </div>
                                         ) : (
                                             <div className="message-bubble">
                                                 {replyData && (
@@ -974,7 +1118,7 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
                                                 )}
 
                                                 {isAudio ? (
-                                                    <CustomAudioPlayer src={msg.content} isOutbound={msg.direction === 'outbound'} />
+                                                    <CustomAudioPlayer src={displaySrc} isOutbound={msg.direction === 'outbound'} />
                                                 ) : (
                                                     <div className="text-content">
                                                         {msg.content}
@@ -1049,6 +1193,36 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
                                 </button>
                             </div>
                         </div>
+                    ) : videoFile ? (
+                        <div className="audio-preview-bar">
+                            <div className="preview-info">
+                                <span style={{ marginRight: '8px', fontSize: '1.2rem' }}>🎥</span>
+                                <span>Vídeo selecionado</span>
+                            </div>
+                            <div className="preview-actions">
+                                <button className="record-btn-action discard" onClick={() => { setVideoFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}>
+                                    <Trash2 size={20} />
+                                </button>
+                                <button className="send-btn" onClick={() => handleSend(null, 'video')}>
+                                    <Send size={18} />
+                                </button>
+                            </div>
+                        </div>
+                    ) : documentFile ? (
+                        <div className="audio-preview-bar">
+                            <div className="preview-info">
+                                <FileText size={16} />
+                                <span>{documentFile.name} (Pronto para enviar)</span>
+                            </div>
+                            <div className="preview-actions">
+                                <button className="record-btn-action discard" onClick={() => { setDocumentFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}>
+                                    <Trash2 size={20} />
+                                </button>
+                                <button className="send-btn" onClick={() => handleSend(null, 'document')}>
+                                    <Send size={18} />
+                                </button>
+                            </div>
+                        </div>
                     ) : imageFile ? (
                         <div className="audio-preview-bar">
                             <div className="preview-info">
@@ -1068,7 +1242,7 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
                         <form className="input-area" onSubmit={(e) => handleSend(e)}>
                             <input
                                 type="file"
-                                accept="image/*"
+                                accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip"
                                 style={{ display: 'none' }}
                                 ref={fileInputRef}
                                 onChange={handleImageSelect}
@@ -1680,125 +1854,127 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
                 }
             `}</style>
 
-            {showTemplateManager && (
-                <div className="template-modal-overlay" onClick={() => setShowTemplateManager(false)}>
-                    <div className="template-modal" onClick={(e) => e.stopPropagation()}>
-                        <div className="modal-header">
-                            <div>
-                                <h3 style={{ margin: 0, fontSize: '1.2rem' }}>Gestão de Modelos</h3>
-                                <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', opacity: 0.6 }}>Use / para acessar rápido no chat</p>
+            {
+                showTemplateManager && (
+                    <div className="template-modal-overlay" onClick={() => setShowTemplateManager(false)}>
+                        <div className="template-modal" onClick={(e) => e.stopPropagation()}>
+                            <div className="modal-header">
+                                <div>
+                                    <h3 style={{ margin: 0, fontSize: '1.2rem' }}>Gestão de Modelos</h3>
+                                    <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', opacity: 0.6 }}>Use / para acessar rápido no chat</p>
+                                </div>
+                                <button className="close-btn" onClick={() => setShowTemplateManager(false)}>
+                                    <X size={20} />
+                                </button>
                             </div>
-                            <button className="close-btn" onClick={() => setShowTemplateManager(false)}>
-                                <X size={20} />
-                            </button>
-                        </div>
 
-                        <div className="modal-body">
-                            {/* Left Side: Form */}
-                            <div className="template-form-section">
-                                <h4 className="section-title">{editingTemplate ? 'EDITAR MODELO' : 'NOVO MODELO'}</h4>
+                            <div className="modal-body">
+                                {/* Left Side: Form */}
+                                <div className="template-form-section">
+                                    <h4 className="section-title">{editingTemplate ? 'EDITAR MODELO' : 'NOVO MODELO'}</h4>
 
-                                <div className="form-group">
-                                    <input
-                                        type="text"
-                                        className="form-input"
-                                        placeholder="Título (ex: saudacao)"
-                                        value={templateForm.title}
-                                        onChange={e => setTemplateForm({ ...templateForm, title: e.target.value })}
-                                    />
-                                </div>
-
-                                <div className="form-group" style={{ flex: 1 }}>
-                                    <textarea
-                                        className="form-textarea"
-                                        placeholder="Conteúdo da mensagem..."
-                                        value={templateForm.content}
-                                        onChange={e => setTemplateForm({ ...templateForm, content: e.target.value })}
-                                    />
-                                </div>
-
-                                <div className="form-footer">
-                                    <label className="checkbox-label">
+                                    <div className="form-group">
                                         <input
-                                            type="checkbox"
-                                            checked={templateForm.is_public}
-                                            onChange={e => setTemplateForm({ ...templateForm, is_public: e.target.checked })}
+                                            type="text"
+                                            className="form-input"
+                                            placeholder="Título (ex: saudacao)"
+                                            value={templateForm.title}
+                                            onChange={e => setTemplateForm({ ...templateForm, title: e.target.value })}
                                         />
-                                        <span>Público para todos</span>
-                                    </label>
+                                    </div>
 
-                                    <div className="button-group">
-                                        {editingTemplate && (
-                                            <button className="btn btn-secondary" onClick={() => saveTemplate(true)}>
-                                                <Copy size={16} /> Duplicar
+                                    <div className="form-group" style={{ flex: 1 }}>
+                                        <textarea
+                                            className="form-textarea"
+                                            placeholder="Conteúdo da mensagem..."
+                                            value={templateForm.content}
+                                            onChange={e => setTemplateForm({ ...templateForm, content: e.target.value })}
+                                        />
+                                    </div>
+
+                                    <div className="form-footer">
+                                        <label className="checkbox-label">
+                                            <input
+                                                type="checkbox"
+                                                checked={templateForm.is_public}
+                                                onChange={e => setTemplateForm({ ...templateForm, is_public: e.target.checked })}
+                                            />
+                                            <span>Público para todos</span>
+                                        </label>
+
+                                        <div className="button-group">
+                                            {editingTemplate && (
+                                                <button className="btn btn-secondary" onClick={() => saveTemplate(true)}>
+                                                    <Copy size={16} /> Duplicar
+                                                </button>
+                                            )}
+                                            <button className="btn btn-primary" onClick={() => saveTemplate(false)}>
+                                                <Save size={16} /> {editingTemplate ? 'Salvar' : 'Criar'}
                                             </button>
-                                        )}
-                                        <button className="btn btn-primary" onClick={() => saveTemplate(false)}>
-                                            <Save size={16} /> {editingTemplate ? 'Salvar' : 'Criar'}
+                                        </div>
+                                    </div>
+
+                                    {editingTemplate && (
+                                        <button className="btn btn-danger" onClick={async () => {
+                                            if (confirm('Excluir este modelo?')) {
+                                                await supabase.from('internal_message_templates').delete().eq('id', editingTemplate.id);
+                                                setEditingTemplate(null);
+                                                setTemplateForm({ title: '', content: '', is_public: true });
+                                                fetchTemplates();
+                                            }
+                                        }}>
+                                            <Trash2 size={16} /> Excluir
+                                        </button>
+                                    )}
+                                </div>
+
+                                {/* Right Side: List */}
+                                <div className="template-list-section">
+                                    <div className="list-header">
+                                        <h4 className="section-title">MODELOS SALVOS</h4>
+                                        <button
+                                            className="btn-icon-add"
+                                            onClick={() => {
+                                                setEditingTemplate(null);
+                                                setTemplateForm({ title: '', content: '', is_public: true });
+                                            }}
+                                            title="Novo modelo"
+                                        >
+                                            <Plus size={18} />
                                         </button>
                                     </div>
-                                </div>
 
-                                {editingTemplate && (
-                                    <button className="btn btn-danger" onClick={async () => {
-                                        if (confirm('Excluir este modelo?')) {
-                                            await supabase.from('internal_message_templates').delete().eq('id', editingTemplate.id);
-                                            setEditingTemplate(null);
-                                            setTemplateForm({ title: '', content: '', is_public: true });
-                                            fetchTemplates();
-                                        }
-                                    }}>
-                                        <Trash2 size={16} /> Excluir
-                                    </button>
-                                )}
-                            </div>
-
-                            {/* Right Side: List */}
-                            <div className="template-list-section">
-                                <div className="list-header">
-                                    <h4 className="section-title">MODELOS SALVOS</h4>
-                                    <button
-                                        className="btn-icon-add"
-                                        onClick={() => {
-                                            setEditingTemplate(null);
-                                            setTemplateForm({ title: '', content: '', is_public: true });
-                                        }}
-                                        title="Novo modelo"
-                                    >
-                                        <Plus size={18} />
-                                    </button>
-                                </div>
-
-                                <div className="templates-scroll">
-                                    {templates.length === 0 ? (
-                                        <div className="empty-state">
-                                            <p>Nenhum modelo criado ainda.</p>
-                                            <p style={{ fontSize: '0.85rem', opacity: 0.6 }}>Crie seu primeiro modelo ao lado!</p>
-                                        </div>
-                                    ) : (
-                                        templates.map(t => (
-                                            <div
-                                                key={t.id}
-                                                className={`template-card ${editingTemplate?.id === t.id ? 'active' : ''}`}
-                                                onClick={() => {
-                                                    setEditingTemplate(t);
-                                                    setTemplateForm({ title: t.title, content: t.content, is_public: t.is_public });
-                                                }}
-                                            >
-                                                <div className="template-card-header">
-                                                    <span className="template-card-title">/{t.title}</span>
-                                                    {t.is_public ? <Globe size={14} /> : <Lock size={14} />}
-                                                </div>
-                                                <p className="template-card-content">{t.content}</p>
+                                    <div className="templates-scroll">
+                                        {templates.length === 0 ? (
+                                            <div className="empty-state">
+                                                <p>Nenhum modelo criado ainda.</p>
+                                                <p style={{ fontSize: '0.85rem', opacity: 0.6 }}>Crie seu primeiro modelo ao lado!</p>
                                             </div>
-                                        ))
-                                    )}
+                                        ) : (
+                                            templates.map(t => (
+                                                <div
+                                                    key={t.id}
+                                                    className={`template-card ${editingTemplate?.id === t.id ? 'active' : ''}`}
+                                                    onClick={() => {
+                                                        setEditingTemplate(t);
+                                                        setTemplateForm({ title: t.title, content: t.content, is_public: t.is_public });
+                                                    }}
+                                                >
+                                                    <div className="template-card-header">
+                                                        <span className="template-card-title">/{t.title}</span>
+                                                        {t.is_public ? <Globe size={14} /> : <Lock size={14} />}
+                                                    </div>
+                                                    <p className="template-card-content">{t.content}</p>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             <style>{`
                 /* ===== TEMPLATE MODAL ===== */
@@ -2118,7 +2294,7 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
                     overflow: hidden;
                 }
             `}</style>
-        </div>
+        </div >
     );
 };
 
