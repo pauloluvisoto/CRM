@@ -214,7 +214,11 @@ app.post('/api/webhooks/wapi-received', async (req, res) => {
         const isFromMe = body.fromMe || body.key?.fromMe || body.data?.key?.fromMe;
         const messageId = body.messageId || body.key?.id || body.data?.key?.id || 'wapi-' + Date.now();
 
-        console.log(`🔍 [W-API] Parsed: Phone=${phone}, Content="${content}", ID=${messageId}, FromMe=${isFromMe}`);
+        // 4. Extract Contact Info
+        const contactName = body.sender?.pushName || body.sender?.verifiedBizName || body.chat?.contact?.name || body.pushName || '';
+        const pictureUrl = body.sender?.profilePicture || body.chat?.profilePicture || body.profilePicture || '';
+
+        console.log(`🔍 [W-API] Parsed: Phone=${phone}, Name="${contactName}", ID=${messageId}, FromMe=${isFromMe}`);
 
         if (!phone || !content) {
             if (logId) await supabase.from('webhook_logs').update({ status: 'ignored', error_message: 'No phone/content' }).eq('id', logId);
@@ -223,7 +227,7 @@ app.post('/api/webhooks/wapi-received', async (req, res) => {
 
         const direction = isFromMe ? 'outbound' : 'inbound';
 
-        // 4. Find or Create Conversation
+        // 5. Find or Create Conversation
         let { data: conversation, error: convError } = await supabase
             .from('social_conversations')
             .select('*')
@@ -235,15 +239,20 @@ app.post('/api/webhooks/wapi-received', async (req, res) => {
             throw convError;
         }
 
+        const metadataUpdate = { phone: phone };
+
         if (!conversation) {
             const { data: newConv, error: createError } = await supabase
                 .from('social_conversations')
                 .insert([{
                     platform: 'whatsapp',
                     external_id: phone,
+                    contact_name: contactName || phone, // Fallback to phone if name missing
+                    picture_url: pictureUrl,
                     last_message: content,
                     last_message_at: new Date().toISOString(),
-                    unread_count: isFromMe ? 0 : 1
+                    unread_count: isFromMe ? 0 : 1,
+                    metadata: metadataUpdate
                 }])
                 .select()
                 .single();
@@ -256,9 +265,17 @@ app.post('/api/webhooks/wapi-received', async (req, res) => {
                 last_message_at: new Date().toISOString()
             };
 
+            // Update name/pic if available
+            if (contactName) updateData.contact_name = contactName;
+            if (pictureUrl) updateData.picture_url = pictureUrl;
+
             if (!isFromMe) {
                 updateData.unread_count = (conversation.unread_count || 0) + 1;
             }
+
+            // Merge metadata
+            const currentMeta = conversation.metadata || {};
+            updateData.metadata = { ...currentMeta, ...metadataUpdate };
 
             await supabase
                 .from('social_conversations')
@@ -266,7 +283,7 @@ app.post('/api/webhooks/wapi-received', async (req, res) => {
                 .eq('id', conversation.id);
         }
 
-        // 5. Insert Message
+        // 6. Insert Message
         const { error: msgError } = await supabase
             .from('social_messages')
             .insert([{

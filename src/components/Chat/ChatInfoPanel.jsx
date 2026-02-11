@@ -28,10 +28,10 @@ export default function ChatInfoPanel({ conversation, onClose }) {
         if (conversation) {
             setFormData({
                 name: conversation.contact_name || conversation.name || 'Sem nome',
-                phone: conversation.metadata?.phone || '',
+                phone: conversation.metadata?.phone || (conversation.platform === 'whatsapp' ? conversation.external_id : '') || '',
                 email: conversation.metadata?.email || '',
                 notes: conversation.metadata?.notes || '',
-                instagram: conversation.metadata?.username || conversation.external_id || '',
+                instagram: conversation.metadata?.username || (conversation.platform === 'instagram' ? conversation.external_id : '') || '',
                 bio: conversation.metadata?.biography || '',
                 website: conversation.metadata?.website || '',
                 company_name: conversation.metadata?.company_name || '',
