@@ -16,6 +16,48 @@ const app = express();
 const PORT = 3001;
 const SCHEMA_PATH = path.join(__dirname, '..', 'schema_financeiro.json');
 
+// Helper: Re-host media from WhatsApp to Supabase Storage
+async function rehostMedia(url, messageId, mediaType, mimetype) {
+    if (!url || !url.startsWith('http')) return url;
+
+    console.log(`📥 [Media Rehost] Downloading ${mediaType} from ${url.substring(0, 50)}...`);
+
+    try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        const blob = await response.blob();
+        const arrayBuffer = await blob.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+
+        // Determine extension
+        let extension = mimetype ? mimetype.split('/')[1]?.split(';')[0] : 'bin';
+        if (extension === 'jpeg') extension = 'jpg';
+        if (mediaType === 'audio') extension = 'ogg';
+
+        const fileName = `${mediaType}_received_${messageId}_${Date.now()}.${extension}`;
+
+        const { data, error } = await supabase.storage
+            .from('chat-media')
+            .upload(fileName, buffer, {
+                contentType: mimetype || 'application/octet-stream',
+                upsert: true
+            });
+
+        if (error) throw error;
+
+        const { data: { publicUrl } } = supabase.storage
+            .from('chat-media')
+            .getPublicUrl(fileName);
+
+        console.log(`✅ [Media Rehost] Success: ${publicUrl}`);
+        return publicUrl;
+    } catch (e) {
+        console.error(`❌ [Media Rehost] Error for message ${messageId}:`, e.message);
+        return url; // Fallback to original URL
+    }
+}
+
 // Initialize Supabase
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
@@ -240,6 +282,17 @@ app.post('/api/webhooks/wapi-received', async (req, res) => {
         // 3. Check Direction & ID
         const isFromMe = body.fromMe || body.key?.fromMe || body.data?.key?.fromMe;
         const messageId = body.messageId || body.key?.id || body.data?.key?.id || 'wapi-' + Date.now();
+
+        // 4. Process Media Re-hosting (Inline for reliability)
+        if (mediaUrl) {
+            const mimetype = msgSource.imageMessage?.mimetype ||
+                msgSource.videoMessage?.mimetype ||
+                msgSource.audioMessage?.mimetype ||
+                msgSource.stickerMessage?.mimetype ||
+                msgSource.documentMessage?.mimetype;
+
+            mediaUrl = await rehostMedia(mediaUrl, messageId, mediaType, mimetype);
+        }
 
         // 4. Extract Contact Info
         const contactName = body.sender?.pushName || body.sender?.verifiedBizName || body.chat?.contact?.name || body.pushName || '';
