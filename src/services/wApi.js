@@ -4,7 +4,7 @@ const BASE_URL = import.meta.env.VITE_W_API_BASE_URL || 'https://api.w-api.app/v
 let ACCOUNT_TOKEN = import.meta.env.VITE_W_API_TOKEN || localStorage.getItem('wapi_account_token') || '';
 
 // Active instance credentials
-let INSTANCE_ID = import.meta.env.VITE_W_API_INSTANCE_ID || localStorage.getItem('wapi_instance_id') || '';
+let INSTANCE_ID = localStorage.getItem('wapi_instance_id') || import.meta.env.VITE_W_API_INSTANCE_ID || '';
 let INSTANCE_TOKEN = localStorage.getItem('wapi_instance_token') || '';
 
 // Helper to update account token (main token for creating/listing instances)
