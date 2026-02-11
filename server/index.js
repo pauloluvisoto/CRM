@@ -312,7 +312,6 @@ app.post('/api/webhooks/wapi-received', async (req, res) => {
                 content: content,
                 direction: direction,
                 external_id: messageId,
-                status: isFromMe ? 'sent' : 'delivered',
                 media_url: mediaUrl,
                 media_type: mediaType,
                 metadata: metadataUpdate
