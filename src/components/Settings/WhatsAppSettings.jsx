@@ -22,7 +22,9 @@ import {
     getWApiCredentials,
     createInstance,
     listInstances,
-    deleteInstance
+    deleteInstance,
+    fetchRemoteActiveInstance,
+    updateRemoteActiveInstance
 } from '../../services/wApi';
 
 const WhatsAppSettings = () => {
@@ -71,27 +73,40 @@ const WhatsAppSettings = () => {
     // QR Refresh interval
     const qrRefreshRef = useRef(null);
 
-    // Initialize from localStorage
+    // Initialize from localStorage and Remote DB
     useEffect(() => {
-        const savedToken = getAccountToken();
-        const { instanceId, instanceToken } = getActiveInstance();
+        const initSettings = async () => {
+            const savedToken = getAccountToken();
+            let { instanceId, instanceToken } = getActiveInstance();
 
-        if (savedToken) {
-            setAccountTokenState(savedToken);
-            setIsTokenSaved(true);
+            // Try to fetch remote instance ID (Source of Truth)
+            try {
+                const remoteId = await import('../../services/wApi').then(m => m.fetchRemoteActiveInstance());
+                if (remoteId && remoteId !== instanceId) {
+                    console.log('🔄 Syncing active instance from DB:', remoteId);
+                    setActiveInstance(remoteId, instanceToken); // Update local storage
+                    instanceId = remoteId;
+                }
+            } catch (e) { console.warn('Sync failed:', e); }
 
-            if (instanceId) {
-                setActiveInstanceIdState(instanceId);
-                setActiveInstanceTokenState(instanceToken || '');
-                setCurrentStep(3); // Go to connect step
+            if (savedToken) {
+                setAccountTokenState(savedToken);
+                setIsTokenSaved(true);
 
-                // Check status
-                checkInstanceStatus(instanceId);
-            } else {
-                setCurrentStep(2); // Go to instance selection
-                loadInstances();
+                if (instanceId) {
+                    setActiveInstanceIdState(instanceId);
+                    setActiveInstanceTokenState(instanceToken || '');
+                    setCurrentStep(3); // Go to connect step
+
+                    // Check status
+                    checkInstanceStatus(instanceId);
+                } else {
+                    setCurrentStep(2); // Go to instance selection
+                    loadInstances();
+                }
             }
-        }
+        };
+        initSettings();
     }, []);
 
     // Load instances from API
@@ -206,6 +221,9 @@ const WhatsAppSettings = () => {
         setActiveInstance(instance.instanceId, instance.token);
         setActiveInstanceIdState(instance.instanceId);
         setActiveInstanceTokenState(instance.token || '');
+
+        // Persist to Remote DB (Supabase)
+        updateRemoteActiveInstance(instance.instanceId);
 
         if (instance.connected) {
             setConnectionStatus('connected');

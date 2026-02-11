@@ -1,3 +1,5 @@
+import { supabase } from '../lib/supabaseClient';
+
 const BASE_URL = import.meta.env.VITE_W_API_BASE_URL || 'https://api.w-api.app/v1';
 
 // Main account token (for creating instances)
@@ -6,6 +8,39 @@ let ACCOUNT_TOKEN = import.meta.env.VITE_W_API_TOKEN || localStorage.getItem('wa
 // Active instance credentials
 let INSTANCE_ID = localStorage.getItem('wapi_instance_id') || import.meta.env.VITE_W_API_INSTANCE_ID || '';
 let INSTANCE_TOKEN = localStorage.getItem('wapi_instance_token') || '';
+
+// Fetch active instance from DB (Supabase)
+export const fetchRemoteActiveInstance = async () => {
+    try {
+        const { data, error } = await supabase
+            .from('app_metadata')
+            .select('value')
+            .eq('key', 'active_wapi_instance_id')
+            .single();
+
+        if (data && data.value) {
+            return data.value; // Returns instanceId string
+        }
+    } catch (error) {
+        console.warn('Failed to fetch remote instance ID:', error);
+    }
+    return null;
+};
+
+// Update active instance in DB (Supabase)
+export const updateRemoteActiveInstance = async (instanceId) => {
+    try {
+        await supabase
+            .from('app_metadata')
+            .upsert({
+                key: 'active_wapi_instance_id',
+                value: instanceId,
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'key' });
+    } catch (error) {
+        console.error('Failed to update remote instance ID:', error);
+    }
+};
 
 // Helper to update account token (main token for creating/listing instances)
 export const setAccountToken = (token) => {
