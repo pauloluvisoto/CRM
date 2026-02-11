@@ -21,15 +21,7 @@ const FinanceHeader = () => {
                     <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-[#141414]"></span>
                 </button>
 
-                <div className="flex items-center gap-3 bg-[#1E1E1E] border border-white/5 rounded-full pl-2 pr-4 py-1.5">
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-green-400 to-green-600 flex items-center justify-center text-black font-bold text-xs uppercase">
-                        {userName[0]}
-                    </div>
-                    <div className="flex flex-col">
-                        <span className="text-sm font-bold text-white leading-tight capitalize">{userName}</span>
-                        <span className="text-[10px] text-gray-400 leading-tight">{user?.email}</span>
-                    </div>
-                </div>
+
             </div>
         </div>
     );

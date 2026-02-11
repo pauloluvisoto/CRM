@@ -30,7 +30,7 @@ const RecentDealsList = ({ data }) => {
     };
 
     return (
-        <div className="flex flex-col h-full w-full bg-background-card border border-white/5 rounded-3xl p-6 hover:shadow-neon transition-all duration-500 group overflow-hidden">
+        <div className="flex flex-col h-full w-full bg-[#1E1E1E] border border-white/5 rounded-3xl p-6 hover:shadow-neon transition-all duration-500 group overflow-hidden">
             <div className="mb-4 flex justify-between items-center">
                 <h3 className="text-text-secondary text-xs uppercase font-bold tracking-widest">Negócios Recentes</h3>
                 <button className="text-xs text-brand hover:underline">Ver todos</button>

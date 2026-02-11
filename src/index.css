@@ -1,119 +1,32 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 
-/* Tailwind CSS v4 Import */
 @import "tailwindcss";
 @config "../tailwind.config.js";
 
-/* ============================================
-   CSS CUSTOM PROPERTIES (Legacy Support)
-   Mantém compatibilidade com componentes antigos
-   ============================================ */
+
 :root {
-  /* Colors - Recupera.ia Identity (Deep Green + Lime) */
-  --bg-primary: #050a07;
-  --bg-secondary: #0d1f12;
-  --bg-hover: #142e1b;
-  --bg-card: #142e1b;
-
-  --text-primary: #ffffff;
-  --text-secondary: #a1a1aa;
-  --text-muted: #52525b;
-  --text-inverted: #000000;
-
-  --border-color: #1a3322;
-
-  --primary: #b4f03a;
-  --primary-hover: #a3d935;
-  --primary-text: #000000;
-
-  --success: #10b981;
-  --warning: #f59e0b;
-  --danger: #ef4444;
-
-  /* Spacing */
-  --spacing-xs: 0.25rem;
-  --spacing-sm: 0.5rem;
-  --spacing-md: 1rem;
-  --spacing-lg: 1.5rem;
-  --spacing-xl: 2rem;
-
-  /* Component specifics */
-  --card-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.5), 0 2px 4px -2px rgb(0 0 0 / 0.5);
-  --sidebar-width: 240px;
-  --header-height: 64px;
-  --radius-md: 8px;
-}
-
-/* ============================================
-   TAILWIND V4 CSS THEME (para @apply funcionar)
-   ============================================ */
-@theme {
-  --color-brand: #b4f03a;
-  --color-brand-hover: #a3d935;
-  --color-brand-dark: #1a3322;
-
-  --color-background-primary: #050a07;
-  --color-background-secondary: #0d1f12;
-  --color-background-card: #142e1b;
-  --color-background-hover: #1a3322;
-
-  --color-text-primary: #ffffff;
-  --color-text-secondary: #a1a1aa;
-  --color-text-muted: #52525b;
-  --color-text-inverted: #000000;
-
-  --color-success: #10b981;
-  --color-warning: #f59e0b;
-  --color-danger: #ef4444;
-
-  --shadow-neon: 0 0 10px rgba(180, 240, 58, 0.2), 0 0 20px rgba(180, 240, 58, 0.1);
-  --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-
-  --font-sans: 'Inter', system-ui, sans-serif;
-}
-
-/* ============================================
-   BASE STYLES
-   ============================================ */
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+  /* Design tokens will go here */
 }
 
 body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
-
-  /* Subtle Grid Background */
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-  background-size: 40px 40px;
-  background-position: center top;
+  @apply bg-background-primary text-text-primary;
 }
 
-a {
-  text-decoration: none;
-  color: inherit;
+/* Global Layout Styles */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
 }
 
-button {
-  cursor: pointer;
-  border: none;
-  background: none;
-  font-family: inherit;
-}
-
-/* ============================================
-   LAYOUT CLASSES
-   ============================================ */
 .app-container {
   display: flex;
   height: 100vh;
+  width: 100%;
   overflow: hidden;
 }
 
@@ -122,92 +35,40 @@ button {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background-color: transparent;
+  height: 100vh;
 }
 
-.page-container {
-  padding: var(--spacing-lg);
-  overflow-y: auto;
-  height: 100%;
-}
-
-/* ============================================
-   SCROLLBAR CUSTOMIZATION
-   ============================================ */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: var(--bg-primary);
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--bg-hover);
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--border-color);
-}
-
-/* ============================================
-   FORM INPUTS
-   ============================================ */
-input,
-select,
-textarea {
-  background-color: var(--bg-secondary);
-  color: var(--text-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 0.5rem 0.75rem;
-}
-
-input::placeholder {
-  color: var(--text-muted);
-}
-
-input:focus,
-select:focus,
-textarea:focus {
-  outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 2px rgba(180, 240, 58, 0.1);
-}
-
-/* ============================================
-   UTILITY CLASSES (Para componentes antigos)
-   ============================================ */
+/* Custom Scrollbar */
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 3px;
+  background: #3f3f46;
+  /* Zinc-700 */
+  border-radius: 99px;
+  transition: background 0.2s;
 }
 
-/* Animate In (for modals/dropdowns) */
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #52525b;
+  /* Zinc-600 */
 }
 
-@keyframes zoomIn {
-  from { transform: scale(0.95); opacity: 0; }
-  to { transform: scale(1); opacity: 1; }
+/* Light scrollbar for columns */
+.column-scrollbar::-webkit-scrollbar {
+  width: 4px;
 }
 
-.animate-in {
-  animation: fadeIn 0.2s ease-out, zoomIn 0.2s ease-out;
+.column-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.6);
 }
 
-.fade-in {
-  animation: fadeIn 0.2s ease-out;
-}
-
-.zoom-in-95 {
-  animation: zoomIn 0.2s ease-out;
+.column-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.8);
 }

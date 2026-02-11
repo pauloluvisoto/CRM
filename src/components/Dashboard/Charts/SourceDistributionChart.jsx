@@ -15,7 +15,7 @@ const SourceDistributionChart = ({ data }) => {
     const COLORS = ['#84cc16', '#10b981', '#3b82f6', '#facc15', '#c084fc']; // Lime, Emerald, Blue, Yellow, Purple
 
     return (
-        <div className="flex flex-col h-full w-full bg-background-card border border-white/5 rounded-3xl p-6 hover:shadow-neon transition-all duration-500 group">
+        <div className="flex flex-col h-full w-full bg-[#1E1E1E] border border-white/5 rounded-3xl p-6 hover:shadow-neon transition-all duration-500 group">
             <div className="mb-2">
                 <h3 className="text-text-secondary text-xs uppercase font-bold tracking-widest">Origem dos Leads</h3>
             </div>

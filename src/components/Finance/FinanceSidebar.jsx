@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Wallet, ArrowRightLeft, FileText, CreditCard, PieChart, TrendingUp } from 'lucide-react';
+import { LayoutDashboard, Wallet, ArrowRightLeft, FileText, CreditCard, PieChart, TrendingUp, Target, Bot } from 'lucide-react';
 
 const FinanceSidebar = () => {
     const navItems = [
@@ -9,7 +9,8 @@ const FinanceSidebar = () => {
         { icon: ArrowRightLeft, label: 'Transações', path: '/finance/transactions' },
         { icon: CreditCard, label: 'Contas', path: '/finance/accounts' },
         { icon: FileText, label: 'Relatórios', path: '/finance/reports' },
-        { icon: TrendingUp, label: 'Business Plan', path: '/finance/business-plan' },
+        { icon: Target, label: 'Business Plan', path: '/finance/business-plan' },
+        { icon: Bot, label: 'Automações', path: '/finance/automations' },
     ];
 
     return (

@@ -13,6 +13,7 @@ import PendingApproval from './pages/PendingApproval';
 import Clients from './pages/Clients';
 import ClientDetails from './pages/ClientDetails';
 import Notifications from './pages/Notifications';
+import GoalsConfiguration from './pages/GoalsConfiguration';
 import ErrorBoundary from './components/ErrorBoundary';
 
 import { useAuth } from './contexts/AuthContext';
@@ -75,6 +76,7 @@ function App() {
           <Route path="reports" element={<Reports />} />
           <Route path="settings" element={<Settings />} />
           <Route path="notifications" element={<Notifications />} />
+          <Route path="goals-config" element={<GoalsConfiguration />} />
           <Route path="team" element={<TeamSettings />} />
           <Route path="finance/*" element={<Finance />} />
         </Route>

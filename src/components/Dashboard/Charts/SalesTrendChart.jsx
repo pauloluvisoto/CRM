@@ -31,7 +31,7 @@ const SalesTrendChart = ({ data }) => {
     const formattedTrend = `${isPositive ? '+' : ''}${trendPercent.toFixed(1)}%`;
 
     return (
-        <div className="flex flex-col h-full w-full bg-background-card border border-white/5 rounded-3xl p-6 hover:shadow-neon transition-all duration-500 group">
+        <div className="flex flex-col h-full w-full bg-[#1E1E1E] border border-white/5 rounded-3xl p-6 hover:shadow-neon transition-all duration-500 group">
             {/* Header */}
             <div className="mb-6 flex justify-between items-start">
                 <div>

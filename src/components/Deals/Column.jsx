@@ -71,8 +71,8 @@ const Column = ({ column, deals, onDealClick, onDeleteColumn, onUpdateTitle, onU
       className="flex flex-col transition-all duration-300"
       style={{
         ...style,
-        minWidth: '280px',
-        width: '280px',
+        minWidth: '250px',
+        width: '250px',
         flexShrink: 0,
         height: '100%',
         maxHeight: '100%',
@@ -131,9 +131,9 @@ const Column = ({ column, deals, onDealClick, onDeleteColumn, onUpdateTitle, onU
             <div
               style={{
                 alignSelf: 'flex-start',
-                padding: '4px 12px',
+                padding: '2px 10px',
                 borderRadius: '9999px',
-                fontSize: '12px',
+                fontSize: '11px',
                 fontWeight: '700',
                 textTransform: 'uppercase',
                 letterSpacing: '0.05em',
@@ -242,7 +242,7 @@ const Column = ({ column, deals, onDealClick, onDeleteColumn, onUpdateTitle, onU
       {/* DEALS LIST AREA */}
       <div
         ref={setDroppableRef}
-        className="custom-scrollbar"
+        className="custom-scrollbar column-scrollbar"
         style={{
           flex: 1,
           overflowY: 'auto',

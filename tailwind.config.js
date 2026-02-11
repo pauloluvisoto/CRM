@@ -9,9 +9,9 @@ export default {
             colors: {
                 // Recupera.ia Identity (Deep Green + Lime)
                 brand: {
-                    DEFAULT: '#b4f03a', // Neon Lime Green
-                    hover: '#a3d935',
-                    dark: '#1a3322', // Darker green for borders/accents
+                    DEFAULT: '#84cc16', // Lime-500 (More natural/pastel)
+                    hover: '#65a30d',   // Lime-600 (Darker hover)
+                    dark: '#3f6212',    // Lime-800 for deep accents
                 },
                 background: {
                     primary: '#050a07', // Very deep green/black base

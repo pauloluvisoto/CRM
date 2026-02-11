@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 import FinanceHeader from './FinanceHeader';
 import TotalBalanceCard from './TotalBalanceCard';
 import StatCard from './StatCard';
@@ -6,11 +7,208 @@ import WalletList from './WalletList';
 import ExpenseBreakdown from './ExpenseBreakdown';
 import TransactionHistory from './TransactionHistory';
 import RecentIncome from './RecentIncome';
+import financeService from '../../services/financeService';
+
+import NewWalletModal from './NewWalletModal';
+import NewTransactionModal from './NewTransactionModal';
+import BusinessPlanMetrics from './BusinessPlanMetrics';
 
 const FinancialDashboard = () => {
+    const [selectedMonth, setSelectedMonth] = useState(new Date());
+    const [metrics, setMetrics] = useState(null);
+    const [expenseBreakdown, setExpenseBreakdown] = useState([]);
+    const [recentTransactions, setRecentTransactions] = useState([]);
+    const [wallets, setWallets] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+    const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
+    const [transactionType, setTransactionType] = useState('income');
+
+    const handlePrevMonth = () => {
+        setSelectedMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+    };
+
+    const handleNextMonth = () => {
+        setSelectedMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+    };
+
+    const loadDashboardData = async () => {
+        setLoading(true);
+        try {
+            // Fetch raw data to process locally for the selected month
+            // Ideally we would pass the date range to the API to filter on server side
+            const [payables, receivables, walletsData] = await Promise.all([
+                financeService.getPayables(),
+                financeService.getReceivables(),
+                financeService.getWallets()
+            ]);
+
+            // Helper to parse YYYY-MM-DD into Local Date without Timezone Shift
+            const parseDate = (dateStr) => {
+                if (!dateStr) return new Date();
+                const [y, m, d] = dateStr.split('-').map(Number);
+                return new Date(y, m - 1, d);
+            };
+
+            // Filter by Selected Month
+            const startOfMonth = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1);
+            const endOfMonth = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 0, 23, 59, 59);
+
+            const filterByMonth = (items) => items.filter(item => {
+                const date = parseDate(item.due_date);
+                return date >= startOfMonth && date <= endOfMonth;
+            });
+
+            const monthlyPayables = filterByMonth(payables);
+            const monthlyReceivables = filterByMonth(receivables);
+
+            // Metrics Calculation
+            const totalIncome = monthlyReceivables.reduce((sum, item) => sum + Number(item.amount), 0);
+            const totalExpense = monthlyPayables.reduce((sum, item) => sum + Number(item.amount), 0);
+
+            // "Real" Balance (Paid/Received only)
+            const realIncome = monthlyReceivables.filter(i => i.status === 'received').reduce((sum, item) => sum + Number(item.amount), 0);
+            const realExpense = monthlyPayables.filter(i => i.status === 'paid').reduce((sum, item) => sum + Number(item.amount), 0);
+            const realBalance = realIncome - realExpense;
+
+            // Projected Balance (All)
+            const projectedBalance = totalIncome - totalExpense;
+
+            setMetrics({
+                totalIncome,
+                totalExpense,
+                balance: realBalance,
+                projectedBalance
+            });
+
+            // Expense Breakdown (Projected)
+            const breakdown = monthlyPayables.reduce((acc, item) => {
+                acc[item.category] = (acc[item.category] || 0) + Number(item.amount);
+                return acc;
+            }, {});
+
+            const breakdownData = Object.entries(breakdown)
+                .map(([name, value]) => ({ name, value }))
+                .sort((a, b) => b.value - a.value);
+
+            setExpenseBreakdown(breakdownData);
+
+            // Recent Transactions (Combined & Sorted)
+            const allTransactions = [
+                ...monthlyReceivables.map(r => ({ ...r, type: 'income', date: r.due_date })),
+                ...monthlyPayables.map(p => ({ ...p, type: 'expense', date: p.due_date }))
+            ].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            setRecentTransactions(allTransactions.slice(0, 10)); // Top 10 of the month
+
+            // Calculate Wallet Balances (Logic from WalletView)
+            const enhancedWallets = walletsData.map(w => {
+                if (w.type === 'Credit') {
+                    // Calculate pending expenses for this wallet (globally, not just this month)
+                    // Because credit card balance is total debt
+                    const pendingSum = payables
+                        .filter(p => p.wallet_id === w.id && p.status === 'pending')
+                        .reduce((sum, p) => sum + Number(p.amount), 0);
+
+                    return { ...w, current_usage: pendingSum };
+                }
+                return w;
+            });
+
+            setWallets(enhancedWallets);
+
+        } catch (error) {
+            console.error("Failed to load dashboard data", error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        loadDashboardData();
+    }, [selectedMonth]);
+
+    const handleSaveWallet = async (newWallet) => {
+        try {
+            await financeService.createWallet(newWallet);
+            await loadDashboardData(); // Reload all data to ensure sync
+            setIsWalletModalOpen(false);
+        } catch (error) {
+            console.error("Error saving wallet:", error);
+            alert("Erro ao salvar carteira.");
+        }
+    };
+
+    const handleSaveTransaction = async (formData) => {
+        try {
+            if (formData.type === 'income') {
+                await financeService.createReceivable({
+                    description: formData.description,
+                    amount: formData.amount,
+                    due_date: formData.date,
+                    status: formData.status,
+                    category: 'Vendas', // Default category
+                    wallet_id: formData.wallet_id
+                });
+            } else {
+                await financeService.createPayable({
+                    description: formData.description,
+                    amount: formData.amount,
+                    due_date: formData.date,
+                    status: formData.status,
+                    category: 'Operacional', // Default category
+                    wallet_id: formData.wallet_id
+                });
+            }
+            await loadDashboardData();
+            setIsTransactionModalOpen(false);
+        } catch (error) {
+            console.error("Error saving transaction:", error);
+            alert("Erro ao salvar transação.");
+        }
+    };
+
+    const openTransactionModal = (type) => {
+        setTransactionType(type);
+        setIsTransactionModalOpen(true);
+    };
+
+    if (loading) {
+        return <div className="p-8 h-full flex items-center justify-center text-white">Carregando dashboard...</div>;
+    }
+
     return (
         <div className="p-8 h-full overflow-y-auto custom-scrollbar bg-[#141414]">
-            <FinanceHeader />
+            <div className="flex flex-col md:flex-row justify-between items-end md:items-center gap-4 mb-8">
+                <FinanceHeader />
+
+                {/* Month Navigation */}
+                <div className="flex items-center gap-2 bg-[#1E1E1E] border border-white/5 p-1 rounded-full shadow-lg shadow-black/20">
+                    <button onClick={handlePrevMonth} className="p-1.5 rounded-full hover:bg-white/5 text-gray-400 hover:text-white transition-colors">
+                        <ChevronLeft size={16} />
+                    </button>
+                    <div className="flex items-center gap-2 px-2">
+                        <Calendar size={16} className="text-green-500" />
+                        <span className="text-sm font-bold text-white capitalize min-w-[140px] text-center">
+                            {selectedMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                        </span>
+                    </div>
+                    <button onClick={handleNextMonth} className="p-1.5 rounded-full hover:bg-white/5 text-gray-400 hover:text-white transition-colors">
+                        <ChevronRight size={16} />
+                    </button>
+                </div>
+            </div>
+            <NewWalletModal
+                isOpen={isWalletModalOpen}
+                onClose={() => setIsWalletModalOpen(false)}
+                onSave={handleSaveWallet}
+            />
+            <NewTransactionModal
+                isOpen={isTransactionModalOpen}
+                onClose={() => setIsTransactionModalOpen(false)}
+                onSave={handleSaveTransaction}
+                initialType={transactionType}
+            />
 
             {/* DASHBOARD GRID */}
             <div className="grid grid-cols-12 gap-8 pb-20">
@@ -20,87 +218,47 @@ const FinancialDashboard = () => {
                     {/* TOP ROW: Balance + Small Stats */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 min-h-[280px]">
                         {/* Big Balance Card */}
-                        <TotalBalanceCard />
+                        <TotalBalanceCard
+                            balance={metrics?.projectedBalance || 0}
+                            projectedBalance={metrics?.projectedBalance || 0}
+                            onRequest={() => openTransactionModal('income')}
+                            onTransfer={() => openTransactionModal('expense')}
+                        />
+
 
                         {/* Small Chart Cards */}
                         <div className="grid grid-cols-2 gap-4 h-full">
                             <StatCard
                                 title="Gasto Mensal"
-                                amount="R$ 32.289,12"
-                                percentage="45%"
-                                chartColor="#EAB308"
+                                amount={metrics?.totalExpense || 0}
+                                chartColor="#EF4444"
                             />
                             <StatCard
                                 title="Renda Mensal"
-                                amount="R$ 32.289,12"
-                                percentage="45%"
+                                amount={metrics?.totalIncome || 0}
                                 chartColor="#22C55E"
                             />
                         </div>
                     </div>
 
-                    {/* Quick Transaction Stripe */}
-                    <div className="bg-[#1E1E1E] rounded-[32px] border border-white/5 p-6">
-                        <h3 className="text-white font-bold mb-4">Transação Rápida</h3>
-                        <div className="flex items-center gap-6 overflow-x-auto pb-2 scrollbar-hide">
-                            <button className="flex flex-col items-center gap-2 group min-w-[60px]">
-                                <div className="w-14 h-14 rounded-full border-2 border-dashed border-gray-600 flex items-center justify-center text-gray-400 group-hover:border-green-500 group-hover:text-green-500 transition-all bg-[#141414]">
-                                    <span className="text-2xl font-light">+</span>
-                                </div>
-                                <span className="text-xs text-gray-400 group-hover:text-green-500 transition-colors">Add</span>
-                            </button>
 
-                            {[1, 2, 3, 4, 5, 6, 7].map(i => (
-                                <div key={i} className="flex flex-col items-center gap-2 min-w-[60px] group cursor-pointer">
-                                    <div className="w-14 h-14 rounded-full bg-gray-700 border-2 border-transparent group-hover:border-green-500 transition-all overflow-hidden relative">
-                                        <img className="object-cover w-full h-full" src={`https://i.pravatar.cc/150?u=${i + 20}`} alt="User" />
-                                    </div>
-                                    <span className="text-xs text-gray-400 group-hover:text-white transition-colors">Person {i}</span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
 
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-                        <ExpenseBreakdown />
-                        {/* We need to be careful with space here. 
-                             If ExpenseBreakdown takes half, where does History go?
-                             In the screenshot, History seems to be Full Width below.
-                             Let's keep Expense Breakdown here next to... something? 
-                             Or maybe just Transaction History below and side-by-side with something else?
-                             Let's follow the User's Screenshot accurately:
-                             Left Col has: Balance Row, Quick Tx, Expense Breakdown (Left), Transaction History (?)
-                             Let's assume Expense Breakdown sits next to History on large screens or History is below.
-                             Let's put History below for better table view.
-                             Wait, Expense Breakdown needs a partner in the grid or full width?
-                             Let's make Expense Breakdown half width and put a placeholder or "Loans" summary next to it?
-                             Actually, let's just put Transaction History FULL WIDTH below everything else in this column.
-                             And Expense Breakdown can be on the Right Sidebar?
-                             NO, Figma shows Expense Breakdown with "Total Expense $74,182" text.
-                             Let's leave Expense Breakdown where it is (taking full width of its container or half).
-                             Let's try putting it side-by-side with something, or just full width.
-                             Full width Donut is weird.
-                             Let's move Expense Breakdwon to the RIGHT COLUMN (Sub-sidebar)?
-                             In the screenshot, the "Donut" is in the middle?
-                             Re-checking screenshot 2371:
-                             The Donut is in the "Expense Breakdown" card.
-                             This card is in the main grid.
-                             Let's place it next to a "Transaction History" summary?
-                             No, let's stick to the code structure I devised: 
-                             History is Full Width. Expense Breakdown is... wait, where?
-                             Let's put Expense Breakdown above History, taking full width for now (flex row inside).
-                          */}
-                        <ExpenseBreakdown />
-                        {/* Empy slot for now, or maybe make Expense Breakdown full width? */}
+                        <ExpenseBreakdown data={expenseBreakdown} totalExpense={metrics?.totalExpense || 0} />
                     </div>
-                    <TransactionHistory />
+                    <TransactionHistory transactions={recentTransactions} />
+
+                    {/* Business Plan Metrics Section */}
+                    <div className="mt-8">
+                        <BusinessPlanMetrics />
+                    </div>
 
                 </div>
 
                 {/* RIGHT COLUMN (Sidebar/Details) - Spans 4 cols */}
                 <div className="col-span-12 xl:col-span-4 flex flex-col gap-8">
-                    <WalletList />
-                    <RecentIncome />
+                    <WalletList wallets={wallets} onAddWallet={() => setIsWalletModalOpen(true)} />
+                    <RecentIncome transactions={recentTransactions.filter(t => t.type === 'income')} />
                 </div>
             </div>
         </div>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
     BarChart,
     Bar,
@@ -10,34 +10,86 @@ import {
     ResponsiveContainer
 } from 'recharts';
 import { Download, FileText, Calendar, Filter } from 'lucide-react';
+import financeService from '../../services/financeService';
 
 const FinanceReports = () => {
     const [activeTab, setActiveTab] = useState('cashflow'); // 'cashflow' or 'dre'
+    const [transactions, setTransactions] = useState([]);
+    const [loading, setLoading] = useState(true);
 
-    // Mock Data for Cash Flow
-    const cashFlowData = [
-        { name: 'Jan', receitas: 45000, despesas: 32000 },
-        { name: 'Fev', receitas: 52000, despesas: 28000 },
-        { name: 'Mar', receitas: 48000, despesas: 41000 },
-        { name: 'Abr', receitas: 61000, despesas: 35000 },
-        { name: 'Mai', receitas: 55000, despesas: 30000 },
-        { name: 'Jun', receitas: 67000, despesas: 38000 },
-    ];
+    useEffect(() => {
+        const loadData = async () => {
+            try {
+                const [payables, receivables] = await Promise.all([
+                    financeService.getPayables(),
+                    financeService.getReceivables()
+                ]);
 
-    // Mock Data for DRE
-    const dreData = [
-        { id: 1, label: 'Receita Bruta', value: 125000.00, type: 'credit', level: 1, highlight: true },
-        { id: 2, label: '(-) Impostos sobre Venda', value: -12500.00, type: 'debit', level: 2 },
-        { id: 3, label: '(=) Receita Líquida', value: 112500.00, type: 'neutral', level: 1, highlight: true },
-        { id: 4, label: '(-) Custos Variáveis', value: -35000.00, type: 'debit', level: 2 },
-        { id: 5, label: '(=) Margem de Contribuição', value: 77500.00, type: 'neutral', level: 1, highlight: true },
-        { id: 6, label: '(-) Despesas com Pessoal', value: -25000.00, type: 'debit', level: 2 },
-        { id: 7, label: '(-) Despesas Administrativas', value: -12000.00, type: 'debit', level: 2 },
-        { id: 8, label: '(-) Despesas de Marketing', value: -8500.00, type: 'debit', level: 2 },
-        { id: 9, label: '(=) EBITDA', value: 32000.00, type: 'neutral', level: 1, highlight: true, color: 'text-yellow-500' },
-        { id: 10, label: '(-) Depreciação e Amortização', value: -2000.00, type: 'debit', level: 2 },
-        { id: 11, label: '(=) Resultado Líquido', value: 30000.00, type: 'credit', level: 1, highlight: true, color: 'text-green-500', size: 'text-xl' },
-    ];
+                // Normalize and merge
+                const normalizedPayables = payables.map(p => ({ ...p, type: 'expense', date: new Date(p.due_date) }));
+                const normalizedReceivables = receivables.map(r => ({ ...r, type: 'income', date: new Date(r.due_date) }));
+                setTransactions([...normalizedPayables, ...normalizedReceivables]);
+            } catch (error) {
+                console.error("Error loading report data", error);
+            } finally {
+                setLoading(false);
+            }
+        };
+        loadData();
+    }, []);
+
+    // Process Cash Flow Data (Group by Month)
+    const cashFlowData = useMemo(() => {
+        const data = [];
+        const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+
+        // Initialize last 6 months or current year? Let's do Jan-Jun 2026 as in mock, or dynamic based on data
+        // Let's do a fixed 12 months for 2026 for now, or simplified to just months present in data.
+        // Better: generic 12 months.
+        for (let i = 0; i < 12; i++) {
+            data.push({ name: monthNames[i], receitas: 0, despesas: 0, monthIndex: i });
+        }
+
+        transactions.forEach(t => {
+            const month = t.date.getMonth(); // 0-11
+            const amount = Number(t.amount);
+            if (t.type === 'income') {
+                data[month].receitas += amount;
+            } else {
+                data[month].despesas += amount;
+            }
+        });
+
+        // Current view: return first 6 months to match previous design or all? Design showed 6.
+        // Let's return all non-zero or first 6? Let's return first 6 for now to keep UI clean.
+        return data.slice(0, 6);
+    }, [transactions]);
+
+    // Process DRE Data
+    const dreData = useMemo(() => {
+        const totalRevenue = transactions.filter(t => t.type === 'income').reduce((acc, t) => acc + Number(t.amount), 0);
+        const totalExpense = transactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + Number(t.amount), 0);
+
+        // Simplified mapping for now since we don't have tax/cost categories separated perfectly
+        const taxes = 0;
+        const netRevenue = totalRevenue - taxes;
+        const variableCosts = 0;
+        const contributionMargin = netRevenue - variableCosts;
+        const fixedCosts = totalExpense; // Assume all expenses are fixed for this simple view
+        const ebitda = contributionMargin - fixedCosts;
+        const netResult = ebitda; // Ignoring depreciation
+
+        return [
+            { id: 1, label: 'Receita Bruta', value: totalRevenue, type: 'credit', level: 1, highlight: true },
+            { id: 2, label: '(-) Impostos', value: -taxes, type: 'debit', level: 2 },
+            { id: 3, label: '(=) Receita Líquida', value: netRevenue, type: 'neutral', level: 1, highlight: true },
+            { id: 4, label: '(-) Custos Variáveis', value: -variableCosts, type: 'debit', level: 2 },
+            { id: 5, label: '(=) Margem de Contribuição', value: contributionMargin, type: 'neutral', level: 1, highlight: true },
+            { id: 6, label: '(-) Despesas Operacionais', value: -fixedCosts, type: 'debit', level: 2 },
+            { id: 9, label: '(=) EBITDA', value: ebitda, type: 'neutral', level: 1, highlight: true, color: 'text-yellow-500' },
+            { id: 11, label: '(=) Resultado Líquido', value: netResult, type: 'credit', level: 1, highlight: true, color: 'text-green-500', size: 'text-xl' },
+        ];
+    }, [transactions]);
 
     return (
         <div className="flex flex-col gap-6 max-w-7xl mx-auto h-full">
@@ -52,8 +104,8 @@ const FinanceReports = () => {
                     <button
                         onClick={() => setActiveTab('cashflow')}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'cashflow'
-                                ? 'bg-[#22C55E] text-black shadow-lg shadow-green-500/20 font-bold'
-                                : 'text-gray-400 hover:text-white hover:bg-white/5'
+                            ? 'bg-[#22C55E] text-black shadow-lg shadow-green-500/20 font-bold'
+                            : 'text-gray-400 hover:text-white hover:bg-white/5'
                             }`}
                     >
                         Fluxo de Caixa
@@ -61,8 +113,8 @@ const FinanceReports = () => {
                     <button
                         onClick={() => setActiveTab('dre')}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'dre'
-                                ? 'bg-[#22C55E] text-black shadow-lg shadow-green-500/20 font-bold'
-                                : 'text-gray-400 hover:text-white hover:bg-white/5'
+                            ? 'bg-[#22C55E] text-black shadow-lg shadow-green-500/20 font-bold'
+                            : 'text-gray-400 hover:text-white hover:bg-white/5'
                             }`}
                     >
                         DRE Gerencial

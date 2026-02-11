@@ -16,7 +16,7 @@ const PipelineFunnelChart = ({ data, title }) => {
     const calculatedHeight = Math.max(250, chartData.length * 50 + 100);
 
     return (
-        <div className="flex flex-col w-full bg-background-card border border-white/5 rounded-3xl p-6 hover:shadow-neon transition-all duration-500 group" style={{ height: `${calculatedHeight}px` }}>
+        <div className="flex flex-col w-full bg-[#1E1E1E] border border-white/5 rounded-3xl p-6 hover:shadow-neon transition-all duration-500 group" style={{ height: `${calculatedHeight}px` }}>
             {/* ... header ... */}
 
             <div className="flex-1 w-full min-h-0">

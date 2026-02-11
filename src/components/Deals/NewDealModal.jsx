@@ -165,7 +165,7 @@ const NewDealModal = ({ isOpen, onClose, onDealCreated, columns, pipelineType = 
 
                 .btn-submit {
                     padding: 0.875rem 1.75rem;
-                    background: linear-gradient(135deg, #bef264 0%, #a3e635 100%);
+                    background: linear-gradient(135deg, #84cc16 0%, #65a30d 100%);
                     color: #1a1a1a;
                     border: none;
                     border-radius: 10px;

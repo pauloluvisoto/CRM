@@ -26,7 +26,8 @@ import {
     ChevronLeft,
     ChevronRight,
     TrendingUp,
-    Target
+    Target,
+    CheckCircle2
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import StatCard from '../components/Dashboard/StatCard';
@@ -59,7 +60,7 @@ const Pipeline = () => {
     const [pipelineTitle, setPipelineTitle] = useState('');
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const [isCreatePipelineModalOpen, setIsCreatePipelineModalOpen] = useState(false);
-    const [kpiStats, setKpiStats] = useState({ total: { count: 0, value: 0 } });
+    // kpiStats moved to useMemo below for performance
 
     // Search & Filter State
     const [searchTerm, setSearchTerm] = useState('');
@@ -71,10 +72,15 @@ const Pipeline = () => {
     const [canScrollRight, setCanScrollRight] = useState(true);
 
     const checkScroll = () => {
+        if (draggingRef.current) return; // Skip during drag to prevent re-render loops
         if (scrollContainerRef.current) {
             const { scrollLeft, scrollWidth, clientWidth } = scrollContainerRef.current;
-            setCanScrollLeft(scrollLeft > 0);
-            setCanScrollRight(scrollLeft + clientWidth < scrollWidth - 1); // -1 tolerance
+            const canLeft = scrollLeft > 10;
+            const canRight = scrollLeft + clientWidth < scrollWidth - 10;
+
+            // Only update if actually different to prevent unnecessary renders
+            setCanScrollLeft(prev => prev !== canLeft ? canLeft : prev);
+            setCanScrollRight(prev => prev !== canRight ? canRight : prev);
         }
     };
 
@@ -460,30 +466,60 @@ const Pipeline = () => {
         }
     };
 
-    // Sync KPIs whenever deals change
-    useEffect(() => {
-        if (deals.length >= 0) {
-            // Define Semantic Helpers locally (or move to utils)
-            const isWon = (name) => ['fechamento', 'fechado', 'ganho'].some(k => name?.toLowerCase().includes(k));
-            const isLost = (name) => ['perdido', 'cancelado', 'no show'].some(k => name?.toLowerCase().includes(k));
+    // Memoized KPIs to reduce re-renders during dragging
+    // Memoized KPIs to reduce re-renders during dragging
+    const kpiStats = useMemo(() => {
+        const isWon = (name) => ['fechamento', 'fechado', 'ganho'].some(k => name?.toLowerCase().includes(k));
+        const isLost = (name) => ['perdido', 'cancelado', 'no show'].some(k => name?.toLowerCase().includes(k));
 
-            const activeDeals = deals.filter(d => {
-                const col = columns.find(c => c.id === d.columnId);
-                if (!col) return true; // Keep if column unknown (safe default)
-                // Exclude Won and Lost stages
-                return !isWon(col.title) && !isLost(col.title);
-            });
+        const now = new Date();
+        const currentMonth = now.getMonth();
+        const currentYear = now.getFullYear();
+        const lastMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+        const lastMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
 
-            const totalVal = activeDeals.reduce((acc, d) => {
-                // Use faturamento_mensal (Monthly Revenue) as the primary value
-                const val = Number(d.faturamento_mensal) || Number(d.value) || 0;
-                return acc + val;
-            }, 0);
+        const isDateInMonth = (dateStr, month, year) => {
+            if (!dateStr) return false;
+            const d = new Date(dateStr);
+            return d.getMonth() === month && d.getFullYear() === year;
+        };
 
-            setKpiStats({
-                total: { count: activeDeals.length, value: totalVal }
-            });
-        }
+        const activeDeals = deals.filter(d => {
+            const col = columns.find(c => c.id === d.columnId);
+            if (!col) return true;
+            return !isWon(col.title) && !isLost(col.title);
+        });
+
+        const totalVal = activeDeals.reduce((acc, d) => {
+            const val = Number(d.faturamento_mensal) || Number(d.value) || 0;
+            return acc + val;
+        }, 0);
+
+        // Active Comparison (Based on creation volume as proxy for activity momentum)
+        const createdCurrent = deals.filter(d => isDateInMonth(d.created_at, currentMonth, currentYear)).length;
+        const createdLast = deals.filter(d => isDateInMonth(d.created_at, lastMonth, lastMonthYear)).length;
+        const activeTrend = createdLast === 0 ? 100 : Math.round(((createdCurrent - createdLast) / createdLast) * 100);
+
+        const wonDeals = deals.filter(d => {
+            const col = columns.find(c => c.id === d.columnId);
+            return col && isWon(col.title);
+        });
+
+        const wonVal = wonDeals.reduce((acc, d) => {
+            const val = Number(d.faturamento_mensal) || Number(d.value) || 0;
+            return acc + val;
+        }, 0);
+
+        // Won Comparison (Based on creation date for now as we lack moved_at)
+        // Ideally we would use 'moved_to_won_date', but 'created_at' compares cohort performance
+        const wonCurrentCount = wonDeals.filter(d => isDateInMonth(d.created_at || d.updated_at, currentMonth, currentYear)).length;
+        const wonLastCount = wonDeals.filter(d => isDateInMonth(d.created_at || d.updated_at, lastMonth, lastMonthYear)).length;
+        const wonTrend = wonLastCount === 0 ? 100 : Math.round(((wonCurrentCount - wonLastCount) / wonLastCount) * 100);
+
+        return {
+            total: { count: activeDeals.length, value: totalVal, trend: activeTrend },
+            won: { count: wonDeals.length, value: wonVal, trend: wonTrend }
+        };
     }, [deals, columns]);
 
     const formatCurrency = (val) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
@@ -501,10 +537,13 @@ const Pipeline = () => {
 
     // Track the last column the active item was moved to, to prevent infinite loops from stale closures
     const lastOverColumnRef = useRef(null);
+    const lastUpdateTimestamp = useRef(0);
+    const draggingRef = useRef(false);
 
     const handleDragStart = (event) => {
         console.log(`%c 🛫 DragStart: ${event.active.id}`, 'color: #3b82f6; font-weight: bold;');
         setActiveId(event.active.id);
+        draggingRef.current = true;
 
         // Initialize the ref with the current column of the dragged item
         const deal = deals.find(d => d.id === event.active.id);
@@ -514,7 +553,6 @@ const Pipeline = () => {
     const handleDragOver = (event) => {
         // Disabled active state key updates to prevent "Maximum update depth exceeded" errors
         // Relies on handleDragEnd for the final update.
-        // This makes the card not "snap" into the new column while dragging, making it more stable.
         return;
     };
 
@@ -716,6 +754,14 @@ const Pipeline = () => {
 
         console.log(`%c 🎯 DragEnd: active=${activeId}, over=${overId}, targetColumn=${newColumnId}`, 'color: #8b5cf6;');
 
+        // Reset tracking refs
+        lastOverColumnRef.current = null;
+        lastUpdateTimestamp.current = 0;
+        draggingRef.current = false;
+
+        // Re-check scroll after drag ends
+        setTimeout(checkScroll, 100);
+
         if (newColumnId) {
             const originalDealData = active.data.current?.deal;
             const originalStage = originalDealData?.stage || originalDealData?.columnId;
@@ -799,71 +845,19 @@ const Pipeline = () => {
                 padding: '1rem 2rem',
                 gap: '2rem'
             }}>
-                {isEditingTitle ? (
-                    <div className="flex items-center">
-                        <input
-                            autoFocus
-                            type="text"
-                            value={pipelineTitle}
-                            onChange={(e) => setPipelineTitle(e.target.value)}
-                            onBlur={() => {
-                                setIsEditingTitle(false);
-                                handleUpdatePipelineTitle(pipelineTitle);
-                            }}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                    setIsEditingTitle(false);
-                                    handleUpdatePipelineTitle(pipelineTitle);
-                                }
-                            }}
-                            style={{
-                                margin: 0,
-                                background: 'var(--bg-secondary)', // Match Finance Input
-                                border: '1px solid var(--border-color)',
-                                borderRadius: '14px', // Increased rounding
-                                padding: '0.6rem 1.25rem',
-                                color: 'var(--text-primary)',
-                                fontSize: '1.8rem', // Match Finance Title
-                                fontWeight: '700',
-                                outline: 'none',
-                                minWidth: '340px',
-                                transition: 'all 0.2s'
-                            }}
-                        />
-
-                    </div>
-                ) : (
-                    <div className="flex items-center">
-                        <h1
-                            style={{
-                                margin: 0,
-                                whiteSpace: 'nowrap',
-                                cursor: 'pointer',
-                                fontSize: '1.8rem', // Match Finance Title
-                                fontWeight: '700',
-                                color: 'var(--text-primary)',
-                                padding: '0.5rem 1rem',
-                                borderRadius: '12px'
-                            }}
-                            onClick={() => setIsEditingTitle(true)}
-                            title="Clique para editar"
-                            className="hover:text-blue-400 hover:bg-white/5 transition-all"
-                        >
-                            {pipelineTitle || PIPELINE_CONFIG[activePipeline]?.title || 'Pipeline de Vendas'}
-                        </h1>
-
-                    </div>
-                )}
+                <div className="flex items-center">
+                    {/* Title Removed */}
+                </div>
 
                 {/* KPI CARDS MOVED HERE */}
-                <div style={{ display: 'flex', gap: '1rem', flex: 1, alignItems: 'center', height: '110px', zIndex: 50 }}>
+                <div style={{ display: 'flex', gap: '0.75rem', flex: 1, alignItems: 'center', height: '100px', zIndex: 50 }}>
                     <div style={{ flex: 1, height: '100%' }}>
                         <StatCard
                             title="Valor em Pipeline"
                             value={formatCurrency(kpiStats.total.value)}
                             icon={TrendingUp}
-                            trend="neutral"
-                            trendValue="--"
+                            trend={kpiStats.total.trend > 0 ? "up" : kpiStats.total.trend < 0 ? "down" : "neutral"}
+                            trendValue={`${kpiStats.total.trend > 0 ? '+' : ''}${kpiStats.total.trend}%`}
                             color="text-blue-400"
                             compact={true}
                             className="h-full"
@@ -874,9 +868,21 @@ const Pipeline = () => {
                             title="Negócios Ativos"
                             value={kpiStats.total.count}
                             icon={Target}
-                            trend="neutral"
-                            trendValue="--"
+                            trend={kpiStats.total.trend > 0 ? "up" : kpiStats.total.trend < 0 ? "down" : "neutral"}
+                            trendValue={`${kpiStats.total.trend > 0 ? '+' : ''}${kpiStats.total.trend}%`}
                             color="text-emerald-400"
+                            compact={true}
+                            className="h-full"
+                        />
+                    </div>
+                    <div style={{ flex: 1, height: '100%' }}>
+                        <StatCard
+                            title="Negócios Ganhos"
+                            value={kpiStats.won.count}
+                            icon={CheckCircle2}
+                            trend={kpiStats.won.trend > 0 ? "up" : kpiStats.won.trend < 0 ? "down" : "neutral"}
+                            trendValue={`${kpiStats.won.trend > 0 ? '+' : ''}${kpiStats.won.trend}%`}
+                            color="text-green-500"
                             compact={true}
                             className="h-full"
                         />
@@ -887,21 +893,19 @@ const Pipeline = () => {
 
                     <button
                         onClick={() => setIsFilterOpen(!isFilterOpen)}
-                        className={`header-btn ${isFilterOpen ? 'active' : ''}`}
-                        title="Filtrar"
+                        className={`header-btn ${isFilterOpen ? 'active' : ''} p-2`}
+                        title="Buscar Negócios"
                     >
-                        <Filter size={18} />
-                        <span>Filtrar</span>
+                        <Search size={18} />
                     </button>
 
 
                     <button
                         onClick={() => setIsImportModalOpen(true)}
-                        className="header-btn"
+                        className="header-btn p-2"
                         title="Importar Negócios"
                     >
                         <Download size={18} className="rotate-180" />
-                        <span>Importar</span>
                     </button>
 
                     <button
@@ -915,7 +919,7 @@ const Pipeline = () => {
             </div>
 
             {/* SPACER FOR OVERLAP PREVENTION */}
-            <div style={{ height: '20px' }}></div>
+            <div style={{ height: '10px' }}></div>
 
             {/* FILTER BAR - Conditionally Rendered */}
             {isFilterOpen && (
@@ -946,65 +950,6 @@ const Pipeline = () => {
             {
                 !loading && columns.length > 0 && (
                     <div style={{ position: 'relative', flex: 1, overflow: 'hidden', display: 'flex' }}>
-                        {/* LEFT SCROLL BUTTON */}
-                        {canScrollLeft && (
-                            <button
-                                onClick={scrollLeft}
-                                style={{
-                                    position: 'absolute',
-                                    left: '1rem',
-                                    top: '50%',
-                                    transform: 'translateY(-50%)',
-                                    zIndex: 9999,
-                                    background: 'rgba(20, 20, 25, 0.6)', // Glassy Dark
-                                    border: '1px solid rgba(255,255,255,0.1)',
-                                    borderRadius: '50%',
-                                    width: '56px',
-                                    height: '56px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    color: '#bef264', // Keep Lime Icon
-                                    boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
-                                    backdropFilter: 'blur(8px)',
-                                    cursor: 'pointer',
-                                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
-                                }}
-                                className="hover:scale-110 hover:bg-black/80 hover:border-lime-400/50"
-                            >
-                                <ChevronLeft size={32} />
-                            </button>
-                        )}
-
-                        {canScrollRight && (
-                            <button
-                                onClick={scrollRight}
-                                style={{
-                                    position: 'absolute',
-                                    right: '1rem',
-                                    top: '50%',
-                                    transform: 'translateY(-50%)',
-                                    zIndex: 9999,
-                                    background: 'rgba(20, 20, 25, 0.6)', // Glassy Dark
-                                    border: '1px solid rgba(255,255,255,0.1)',
-                                    borderRadius: '50%',
-                                    width: '56px',
-                                    height: '56px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    color: '#bef264', // Keep Lime Icon
-                                    boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
-                                    backdropFilter: 'blur(8px)',
-                                    cursor: 'pointer',
-                                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
-                                }}
-                                className="hover:scale-110 hover:bg-black/80 hover:border-lime-400/50"
-                            >
-                                <ChevronRight size={32} />
-                            </button>
-                        )}
-
                         <div
                             ref={scrollContainerRef}
                             className="custom-scrollbar"
@@ -1055,9 +1000,9 @@ const Pipeline = () => {
                                             style={{
                                                 width: '100%',
                                                 height: '64px', // Taller button
-                                                border: '2px dashed rgba(255,255,255,0.08)',
+                                                border: '2px dashed rgba(158, 158, 158, 0.69)',
                                                 borderRadius: '24px', // Match column rounding
-                                                background: 'rgba(255,255,255,0.02)',
+                                                background: '#27272a', // Lighter Gray (Zinc-800)
                                                 color: 'var(--text-secondary)',
                                                 display: 'flex',
                                                 alignItems: 'center',
@@ -1153,17 +1098,15 @@ const Pipeline = () => {
 
                 /* Primary Action Button (New Deal) */
                 .header-btn.primary {
-                    background: linear-gradient(135deg, #bef264 0%, #a3e635 100%); /* Lime Gradient */
+                    background: #84cc16; /* New Brand Solid */
                     color: #050a07;
                     border: none;
                     font-weight: 700;
-                    box-shadow: 0 4px 15px rgba(163, 230, 53, 0.3);
+                    transition: all 0.2s;
                 }
 
                 .header-btn.primary:hover {
-                    filter: brightness(1.1);
-                    transform: translateY(-2px);
-                    box-shadow: 0 8px 25px rgba(163, 230, 53, 0.4);
+                    background: #65a30d; /* Darker Hover */
                 }
 
                 .stats-row {
@@ -1190,24 +1133,6 @@ const Pipeline = () => {
                     border-radius: 20px;
                     overflow: hidden;
                     border: 1px solid rgba(255,255,255,0.1);
-                }
-
-                .custom-scrollbar::-webkit-scrollbar {
-                    width: 8px; /* Slightly wider for visibility */
-                    height: 8px;
-                }
-                .custom-scrollbar::-webkit-scrollbar-track {
-                    background: rgba(255, 255, 255, 0.02);
-                    border-radius: 10px;
-                }
-                .custom-scrollbar::-webkit-scrollbar-thumb {
-                    background: #bef264; /* NEON LIME */
-                    border-radius: 10px;
-                    border: 2px solid rgba(20, 20, 30, 0.8); /* Refined border */
-                }
-                .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-                    background: #a3e635;
-                    border: 2px solid rgba(20, 20, 30, 0.8);
                 }
             `}</style>
             <NewDealModal

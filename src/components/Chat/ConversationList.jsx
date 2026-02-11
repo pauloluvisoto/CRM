@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, MessageCircle, Instagram, Image as ImageIcon, Mic } from 'lucide-react';
+import { Search, MessageCircle, Instagram, Image as ImageIcon, Mic, Users } from 'lucide-react';
 
 const ConversationList = ({ conversations, selectedId, onSelect }) => {
     const [searchTerm, setSearchTerm] = useState('');
@@ -15,25 +15,38 @@ const ConversationList = ({ conversations, selectedId, onSelect }) => {
     const getPreviewContent = (msg) => {
         if (!msg) return '';
         if (msg.match(/\.(mp3|mp4|webm|m4a)(\?.*)?$/i)) {
-            return <><Mic size={12} className="inline-icon" /> Áudio</>;
+            return <><Mic size={12} className="cl-inline-icon" /> Áudio</>;
         }
         if (msg.match(/\.(jpg|jpeg|png|gif|webp)(\?.*)?$/i)) {
-            return <><ImageIcon size={12} className="inline-icon" /> Imagem</>;
+            return <><ImageIcon size={12} className="cl-inline-icon" /> Imagem</>;
         }
-        return msg.length > 30 ? msg.substring(0, 30) + '...' : msg;
+        return msg.length > 35 ? msg.substring(0, 35) + '...' : msg;
     };
 
+    const totalUnread = (conversations || []).reduce((acc, c) => acc + (c.unread || 0), 0);
+
     return (
-        <div className="conv-list-container">
-            <div className="conv-header">
-                <h2>Mensagens</h2>
-                <div className="filter-tabs">
-                    <button className={`tab ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>Todos</button>
-                    <button className={`tab ${filter === 'whatsapp' ? 'active' : ''}`} onClick={() => setFilter('whatsapp')}><MessageCircle size={14} /></button>
-                    <button className={`tab ${filter === 'instagram' ? 'active' : ''}`} onClick={() => setFilter('instagram')}><Instagram size={14} /></button>
+        <div className="cl-container">
+            <div className="cl-header">
+                <div className="cl-header-top">
+                    <h2 className="cl-title">Mensagens</h2>
+                    {totalUnread > 0 && (
+                        <span className="cl-total-badge">{totalUnread}</span>
+                    )}
                 </div>
-                <div className="search-bar">
-                    <Search size={16} className="search-icon" />
+                <div className="cl-filters">
+                    <button className={`cl-filter ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>
+                        <Users size={13} /> Todos
+                    </button>
+                    <button className={`cl-filter ${filter === 'whatsapp' ? 'active' : ''}`} onClick={() => setFilter('whatsapp')}>
+                        <MessageCircle size={13} /> WhatsApp
+                    </button>
+                    <button className={`cl-filter ${filter === 'instagram' ? 'active' : ''}`} onClick={() => setFilter('instagram')}>
+                        <Instagram size={13} /> Instagram
+                    </button>
+                </div>
+                <div className="cl-search">
+                    <Search size={15} className="cl-search-icon" />
                     <input
                         placeholder="Buscar conversa..."
                         value={searchTerm}
@@ -42,37 +55,42 @@ const ConversationList = ({ conversations, selectedId, onSelect }) => {
                 </div>
             </div>
 
-            <div className="conv-items">
+            <div className="cl-list">
+                {filtered.length === 0 && (
+                    <div className="cl-empty">
+                        <p>Nenhuma conversa encontrada</p>
+                    </div>
+                )}
                 {filtered.map(conv => (
                     <div
                         key={conv.id}
-                        className={`conv-item ${selectedId === conv.id ? 'selected' : ''}`}
+                        className={`cl-item ${selectedId === conv.id ? 'selected' : ''} ${conv.unread > 0 ? 'has-unread' : ''}`}
                         onClick={() => onSelect(conv)}
                     >
-                        <div className="avatar-wrapper">
+                        <div className="cl-avatar-wrap">
                             {conv.picture_url ? (
-                                <img src={conv.picture_url} alt="" className="avatar-img" />
+                                <img src={conv.picture_url} alt="" className="cl-avatar-img" />
                             ) : (
-                                <div className="avatar-placeholder">
+                                <div className="cl-avatar-ph">
                                     {(conv.contact_name || '?').charAt(0)}
                                 </div>
                             )}
-                            <div className={`platform-badge ${conv.platform}`}>
-                                {conv.platform === 'whatsapp' ? <MessageCircle size={10} color="white" /> : <Instagram size={10} color="white" />}
+                            <div className={`cl-platform ${conv.platform}`}>
+                                {conv.platform === 'whatsapp' ? <MessageCircle size={9} color="white" /> : <Instagram size={9} color="white" />}
                             </div>
                         </div>
 
-                        <div className="conv-info">
-                            <div className="conv-top">
-                                <span className={`name ${conv.unread > 0 ? 'unread-name' : ''}`}>{conv.contact_name}</span>
-                                <span className="time">{conv.time}</span>
+                        <div className="cl-info">
+                            <div className="cl-row-top">
+                                <span className={`cl-name ${conv.unread > 0 ? 'unread' : ''}`}>{conv.contact_name}</span>
+                                <span className="cl-time">{conv.time}</span>
                             </div>
-                            <div className="conv-bottom">
-                                <span className={`last-msg ${conv.unread > 0 ? 'unread-msg' : ''}`}>
+                            <div className="cl-row-bottom">
+                                <span className={`cl-preview ${conv.unread > 0 ? 'unread' : ''}`}>
                                     {getPreviewContent(conv.last_message)}
                                 </span>
                                 {conv.unread > 0 && (
-                                    <span className="unread-badge"></span>
+                                    <span className="cl-unread-dot"></span>
                                 )}
                             </div>
                         </div>
@@ -81,139 +99,198 @@ const ConversationList = ({ conversations, selectedId, onSelect }) => {
             </div>
 
             <style>{`
-                .conv-list-container {
+                .cl-container {
                     display: flex;
                     flex-direction: column;
                     height: 100%;
+                    background: transparent;
                 }
 
-                .conv-header {
-                    padding: 1rem;
-                    border-bottom: 1px solid var(--border-color);
+                .cl-header {
+                    padding: 16px 14px 12px;
+                    border-bottom: 1px solid rgba(255,255,255,0.04);
                     display: flex;
                     flex-direction: column;
-                    gap: 1rem;
+                    gap: 10px;
                 }
 
-                .conv-header h2 { font-size: 1.25rem; font-weight: 700; }
-
-                .filter-tabs {
+                .cl-header-top {
                     display: flex;
-                    gap: 0.5rem;
+                    align-items: center;
+                    justify-content: space-between;
                 }
-                .tab {
-                    flex: 1;
-                    padding: 0.5rem;
-                    border: 1px solid var(--border-color);
-                    background: transparent;
-                    color: var(--text-secondary);
-                    border-radius: 6px;
-                    cursor: pointer;
-                    display: flex; justify-content: center; align-items: center;
-                    transition: all 0.2s;
-                    font-size: 0.85rem;
-                }
-                .tab:hover { background: var(--bg-hover); }
-                .tab.active { background: var(--primary); color: black; border-color: var(--primary); }
 
-                .search-bar {
+                .cl-title {
+                    font-size: 1.2rem;
+                    font-weight: 700;
+                    color: #fff;
+                    margin: 0;
+                }
+
+                .cl-total-badge {
+                    background: #22c55e;
+                    color: #fff;
+                    font-size: 0.7rem;
+                    font-weight: 700;
+                    padding: 2px 8px;
+                    border-radius: 99px;
+                    min-width: 20px;
+                    text-align: center;
+                }
+
+                .cl-filters {
+                    display: flex;
+                    gap: 4px;
+                    background: rgba(0,0,0,0.2);
+                    padding: 3px;
+                    border-radius: 10px;
+                }
+                .cl-filter {
+                    flex: 1;
+                    padding: 6px 8px;
+                    border: none;
+                    background: transparent;
+                    color: #666;
+                    border-radius: 7px;
+                    cursor: pointer;
+                    display: flex; justify-content: center; align-items: center; gap: 4px;
+                    transition: all 0.2s;
+                    font-size: 0.78rem;
+                    font-weight: 600;
+                }
+                .cl-filter:hover { color: #999; background: rgba(255,255,255,0.03); }
+                .cl-filter.active {
+                    background: rgba(132,204,22,0.12);
+                    color: #84cc16;
+                }
+
+                .cl-search {
                     position: relative;
                 }
-                .search-icon {
+                .cl-search-icon {
                     position: absolute;
                     left: 10px;
                     top: 50%;
                     transform: translateY(-50%);
-                    color: var(--text-secondary);
+                    color: #444;
                 }
-                .search-bar input {
+                .cl-search input {
                     width: 100%;
-                    padding: 0.6rem 0.6rem 0.6rem 2.2rem;
-                    background: var(--bg-primary);
-                    border: 1px solid var(--border-color);
-                    border-radius: 6px;
-                    color: white;
+                    padding: 8px 8px 8px 32px;
+                    background: rgba(0,0,0,0.25);
+                    border: 1px solid rgba(255,255,255,0.05);
+                    border-radius: 8px;
+                    color: #fff;
+                    font-size: 0.85rem;
+                    transition: border-color 0.2s;
                 }
+                .cl-search input:focus {
+                    outline: none;
+                    border-color: rgba(132,204,22,0.3);
+                }
+                .cl-search input::placeholder { color: #444; }
 
-                .conv-items {
+                .cl-list {
                     flex: 1;
                     overflow-y: auto;
                 }
 
-                .conv-item {
-                    display: flex;
-                    padding: 1rem;
-                    cursor: pointer;
-                    border-bottom: 1px solid rgba(255,255,255,0.03);
-                    transition: background 0.2s;
+                .cl-empty {
+                    padding: 2rem;
+                    text-align: center;
+                    color: #444;
+                    font-size: 0.85rem;
                 }
-                .conv-item:hover { background: var(--bg-hover); }
-                .conv-item.selected { background: rgba(180, 240, 58, 0.08); border-right: 3px solid var(--primary); }
 
-                .avatar-wrapper {
-                    position: relative;
-                    width: 40px; height: 40px;
-                    margin-right: 12px;
+                .cl-item {
+                    display: flex;
+                    padding: 12px 14px;
+                    cursor: pointer;
+                    border-bottom: 1px solid rgba(255,255,255,0.02);
+                    transition: all 0.15s;
+                    border-left: 3px solid transparent;
                 }
-                .avatar-placeholder, .avatar-img {
+                .cl-item:hover {
+                    background: rgba(255,255,255,0.02);
+                }
+                .cl-item.selected {
+                    background: rgba(132,204,22,0.06);
+                    border-left-color: #84cc16;
+                }
+                .cl-item.has-unread {
+                    background: rgba(34,197,94,0.03);
+                }
+
+                .cl-avatar-wrap {
+                    position: relative;
+                    width: 42px; height: 42px;
+                    margin-right: 10px;
+                    flex-shrink: 0;
+                }
+                .cl-avatar-ph, .cl-avatar-img {
                     width: 100%; height: 100%;
                     border-radius: 50%;
                     object-fit: cover;
                 }
-                .avatar-placeholder {
-                    background: #333;
+                .cl-avatar-ph {
+                    background: linear-gradient(135deg, #2a2a35, #1f1f28);
                     display: flex; align-items: center; justify-content: center;
-                    font-weight: 700; color: #fff;
+                    font-weight: 700; color: #888; font-size: 1rem;
+                    border: 1.5px solid rgba(255,255,255,0.06);
                 }
-                
-                .platform-badge {
-                    position: absolute;
-                    bottom: -2px; right: -2px;
-                    background: black;
-                    border-radius: 50%;
-                    padding: 2px;
-                    display: flex; align-items: center; justify-content: center;
-                    border: 2px solid var(--bg-secondary);
-                }
-                .platform-badge.whatsapp { background: #25D366; }
-                .platform-badge.instagram { background: linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%); }
 
-                .conv-info {
+                .cl-platform {
+                    position: absolute;
+                    bottom: -1px; right: -1px;
+                    border-radius: 50%;
+                    padding: 3px;
+                    display: flex; align-items: center; justify-content: center;
+                    border: 2px solid #16161e;
+                }
+                .cl-platform.whatsapp { background: #25D366; }
+                .cl-platform.instagram { background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888); }
+
+                .cl-info {
                     flex: 1;
                     display: flex; flex-direction: column;
                     justify-content: center;
-                    overflow: hidden;
+                    min-width: 0;
                 }
-                .conv-top, .conv-bottom {
+                .cl-row-top, .cl-row-bottom {
                     display: flex; justify-content: space-between; align-items: center;
-                    margin-bottom: 2px;
                 }
-                .name { font-weight: 500; font-size: 0.95rem; }
-                .name.unread-name { font-weight: 700; color: white; }
-                
-                .time { font-size: 0.75rem; color: var(--text-secondary); }
-                
-                .last-msg { 
-                    font-size: 0.85rem; color: var(--text-secondary); 
+                .cl-row-top { margin-bottom: 3px; }
+
+                .cl-name {
+                    font-weight: 500; font-size: 0.9rem; color: #ccc;
                     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-                    max-width: 180px;
+                    max-width: 170px;
+                }
+                .cl-name.unread { font-weight: 700; color: #fff; }
+
+                .cl-time { font-size: 0.72rem; color: #555; flex-shrink: 0; }
+
+                .cl-preview {
+                    font-size: 0.8rem; color: #555;
+                    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                    max-width: 190px;
                     display: flex; align-items: center; gap: 4px;
                 }
-                .last-msg.unread-msg {
-                    color: #fff;
+                .cl-preview.unread {
+                    color: #aaa;
                     font-weight: 600;
                 }
 
-                .unread-badge {
+                .cl-unread-dot {
                     background: #22c55e;
-                    width: 10px; height: 10px;
+                    width: 9px; height: 9px;
                     border-radius: 50%;
-                    margin-left: 8px;
                     flex-shrink: 0;
+                    box-shadow: 0 0 6px rgba(34,197,94,0.4);
                 }
-                
-                .inline-icon {
-                    opacity: 0.7;
+
+                .cl-inline-icon {
+                    opacity: 0.6;
                 }
             `}</style>
         </div>

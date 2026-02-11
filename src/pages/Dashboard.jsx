@@ -2,10 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { getAccessibleUserIds } from '../utils/rbac';
 import { supabase } from '../lib/supabaseClient';
+import { businessPlanService } from '../services/businessPlanService';
 import CommercialDashboard from '../components/Dashboard/CommercialDashboard';
 
 import PeriodFilter from '../components/Dashboard/PeriodFilter';
-import GoalsModal from '../components/Dashboard/GoalsModal';
+import CommercialMetrics from '../components/Dashboard/CommercialMetrics';
 import { Target, Filter, ChevronDown, Zap } from 'lucide-react';
 
 const PRODUCT_VALUE = 597;
@@ -133,11 +134,32 @@ const Dashboard = () => {
 
     const fetchUserGoals = async () => {
         try {
+            // 1. Fetch Unified Goals from Business Plan Service
+            console.log('Fetching unified goals...');
+            const bpMetrics = await businessPlanService.getMetrics();
+            console.log('BP Metrics received:', bpMetrics);
+
+            // 2. Map BP Metrics to Dashboard Goals structure
+            if (bpMetrics && bpMetrics.commercial) {
+                console.log('Using Unified Goals:', bpMetrics.commercial);
+                const unifiedGoals = {
+                    visitors_goal: bpMetrics.commercial.leads,
+                    meetings_goal: bpMetrics.commercial.meetings,
+                    deals_goal: bpMetrics.commercial.sales,
+                    revenue_goal: bpMetrics.receitas.total.bp,
+                    ticket_goal: bpMetrics.commercial.ticket
+                };
+                setUserGoals(unifiedGoals);
+                return; // successfully set, exit
+            } else {
+                console.warn('BP Metrics missing commercial data, falling back...');
+            }
+
+            // Fallback to old user_goals if BP service fails or is empty (Legacy support)
             const today = new Date();
             const month = today.getMonth() + 1;
             const year = today.getFullYear();
-
-            const { data, error } = await supabase
+            const { data } = await supabase
                 .from('user_goals')
                 .select('*')
                 .eq('user_id', user.id)
@@ -145,9 +167,12 @@ const Dashboard = () => {
                 .eq('year', year)
                 .maybeSingle();
 
-            if (data) setUserGoals(data);
+            if (data) {
+                console.log('Using Fallback SQL Goals:', data);
+                setUserGoals(data);
+            }
         } catch (err) {
-            console.error('Error fetching goals:', err);
+            console.error('Error fetching unified goals:', err);
         }
     };
 
@@ -463,93 +488,7 @@ const Dashboard = () => {
         }
     };
 
-    const handleSimulateData = async () => {
-        if (!confirm('ATENÇÃO: Isso apagará TODOS os dados e gerará 100 negócios distribuídos por TODAS as etapas (Valor R$ 597). Deseja continuar?')) return;
-        setLoading(true);
-        try {
-            // 1. Clear existing data
-            const { error: deleteError } = await supabase.from('central_vendas').delete().not('id', 'is', null);
-            if (deleteError) throw deleteError;
 
-            // 2. FETCH REAL STAGE IDs
-            const { data: stagesData, error: sError } = await supabase.from('pipeline_stages').select('*').order('position');
-            if (sError) throw sError;
-
-            // Get All Pipelines
-            const { data: pipelinesData, error: pError } = await supabase.from('pipelines').select('*');
-            if (pError) throw pError;
-
-            if (stagesData.length === 0 || pipelinesData.length === 0) {
-                alert('Erro: Pipelines ou Estágios não encontrados.');
-                return;
-            }
-
-            // 3. GENERATE DEAL LOGIC (100 DEALS)
-            const dealsToInsert = [];
-            const userId = user.id;
-            const originsInbound = ['Google', 'Instagram', 'Indicação', 'Linkedin'];
-            const TOTAL_DEALS = 100;
-
-            // Helper to get random item from array
-            const getRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
-
-            for (let i = 0; i < TOTAL_DEALS; i++) {
-                // Randomly select a pipeline
-                const pipeline = getRandom(pipelinesData);
-
-                // Randomly select a stage from that pipeline
-                const pipeStages = stagesData.filter(s => s.pipeline_id === pipeline.id);
-                if (pipeStages.length === 0) continue;
-                const stage = getRandom(pipeStages);
-
-                // Determine type based on pipeline name
-                const isInbound = pipeline.name.toLowerCase().includes('receptivo') || pipeline.name.toLowerCase().includes('inbound');
-                const dealType = isInbound ? 'Inbound' : 'Outbound';
-                const pipelineType = isInbound ? 'Receptivo' : 'Ativo_Diagnostico';
-
-                // Determine Logic for Won/Lost/Date
-                // Heuristic: If stage name contains 'ganho'/'won' -> Won. If 'perdido'/'lost' -> Lost.
-                const stageName = (stage.title || stage.name || '').toLowerCase();
-                const isWon = stageName.includes('ganho') || stageName.includes('won') || stageName.includes('fechad') || stageName.includes('vendido');
-
-                // Dates: Distribute between This Month (Active/New) and Past Months (Historical - mostly Won/Lost)
-                // 70% Recent (0-30 days), 30% Old (30-90 days)
-                const isOld = Math.random() > 0.7;
-                const date = new Date();
-                const daysBack = isOld ? Math.floor(Math.random() * 60) + 30 : Math.floor(Math.random() * 30);
-                date.setDate(date.getDate() - daysBack);
-
-                const origin = isInbound ? getRandom(originsInbound) : 'Prospecção Ativa';
-
-                dealsToInsert.push({
-                    empresa_cliente: `Cliente ${dealType} ${i + 1}`,
-                    nome_contato: `Contato Simul ${i + 1}`,
-                    faturamento_mensal: 597, // FIXED VALUE AS REQUESTED
-                    tipo_pipeline: pipelineType,
-                    stage: stage.id,
-                    created_by: userId,
-                    status_contrato: isWon ? 'Assinado' : 'Nao_Gerado',
-                    origem: origin,
-                    data_fechamento: isWon ? date.toISOString() : null,
-                    created_at: date.toISOString()
-                });
-            }
-
-            const { error } = await supabase.from('central_vendas').insert(dealsToInsert);
-
-            if (error) throw error;
-
-            alert('✅ SUCESSO! 100 Negócios gerados com valor R$ 597,00 em TODAS as etapas.');
-
-            fetchDashboardData();
-
-        } catch (error) {
-            console.error('Erro na simulação:', error);
-            alert('Erro ao simular dados: ' + error.message);
-        } finally {
-            setLoading(false);
-        }
-    };
 
     if (initializing || loading) {
         return (
@@ -563,7 +502,7 @@ const Dashboard = () => {
     }
 
     return (
-        <div className="flex flex-col gap-6 w-full max-w-[1920px] mx-auto">
+        <div className="flex flex-col gap-6 w-full max-w-[1920px] mx-auto px-6 py-4">
             <div className="flex justify-between items-start mb-2">
                 <div className="flex flex-col gap-1">
 
@@ -613,16 +552,9 @@ const Dashboard = () => {
 
                 <div className="flex items-center gap-3">
                     <button
-                        className="flex items-center gap-2 bg-yellow-400/10 text-yellow-400 border border-yellow-400/20 px-4 py-2 rounded-xl text-sm font-bold hover:bg-yellow-400 hover:text-black hover:shadow-lg transition-all"
-                        onClick={handleSimulateData}
-                        title="Gerar 20 negócios de teste"
-                    >
-                        <Zap size={18} /> Simular Dados
-                    </button>
-                    <button
                         className="flex items-center gap-2 bg-brand/10 text-brand border border-brand/20 px-4 py-2 rounded-xl text-sm font-bold hover:bg-brand hover:text-white hover:shadow-lg transition-all"
-                        onClick={() => setShowGoalsModal(true)}
-                        title="Definir Metas Mensais"
+                        onClick={() => window.location.href = '/goals-config'}
+                        title="Definir Metas"
                     >
                         <Target size={18} /> Metas
                     </button>
@@ -632,18 +564,16 @@ const Dashboard = () => {
                         customDates={customDates}
                         onCustomDateChange={handleCustomDateChange}
                     />
-                </div>
-            </div>
+                </div >
+            </div >
 
-            <GoalsModal
-                isOpen={showGoalsModal}
-                onClose={() => setShowGoalsModal(false)}
-                userId={user?.id}
+
+
+            {/* NEW PREMIUM HEADER METRICS */}
+            <CommercialMetrics
+                stats={stats}
                 goals={userGoals}
-                onGoalsUpdated={(newGoals) => setUserGoals(newGoals)}
-                deals={deals}
-                pipelines={pipelines}
-                stages={Object.values(stats.columnColors || {}).map(c => ({ id: c.id, name: c.title, position: 0 }))}
+                loading={loading}
             />
 
             <CommercialDashboard
@@ -660,16 +590,9 @@ const Dashboard = () => {
             />
 
             {/* DEBUG PANEL - TEMPORARY */}
-            <div className="p-4 bg-black/80 text-xs font-mono text-green-400 overflow-auto max-h-96 mt-10 rounded-xl border border-green-500/20">
-                <h3 className="font-bold mb-2">🔍 DEBUG DATA</h3>
-                <div>Pipelines: {pipelines.length}</div>
-                <div>Deals: {deals.length}</div>
-                <div>Deals (Sample): {JSON.stringify(deals.slice(0, 2).map(d => ({ st: d.stage, pipe: d.tipo_pipeline, val: d.faturamento_mensal })), null, 2)}</div>
-                <div className="mt-2">Stages Identificados: {stats.columnColors ? Object.keys(stats.columnColors).length : 0}</div>
-                <div>Stage IDs (Sample): {JSON.stringify(stats.columnColors ? Object.keys(stats.columnColors).slice(0, 5) : [], null, 2)}</div>
-            </div>
 
-        </div>
+
+        </div >
     );
 };
 
