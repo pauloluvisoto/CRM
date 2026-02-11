@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Send, Phone, MoreVertical, Instagram, MessageCircle, Check, CheckCheck, Reply, X, Mic, Trash2, Pause, Play, Square, Image as ImageIcon, Info, Settings, Plus, Save, Globe, Lock, Copy, Smile } from 'lucide-react';
+import { Send, Phone, MoreVertical, Instagram, MessageCircle, Check, CheckCheck, Reply, X, Mic, Trash2, Pause, Play, Square, Image as ImageIcon, Info, Settings, Plus, Save, Globe, Lock, Copy, Smile, FileText } from 'lucide-react';
 import ChatInfoPanel from './ChatInfoPanel';
 import { supabase } from '../../lib/supabaseClient';
 import { useNavigate } from 'react-router-dom';
@@ -1118,170 +1118,89 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
             // For now, logging is key. Ideally we should set status='failed' for the optimistic message if we could track it.
             alert('Erro ao enviar mensagem: ' + err.message);
         }
-    }
-};
+    };
 
-return (
-    <div className="window-container">
-        <div className="chat-main-area">
-            <div className="window-header">
-                <div
-                    className="header-info"
-                    onClick={() => conversation.contact_id && navigate(`/clients/${conversation.contact_id}`)}
-                    style={{ cursor: conversation.contact_id ? 'pointer' : 'default' }}
-                >
-                    <div className="avatar-small">
-                        {conversation.picture_url ? (
-                            <img src={conversation.picture_url} alt="" className="avatar-img" />
-                        ) : (
-                            (conversation.contact_name || '?').charAt(0)
-                        )}
-                    </div>
-                    <div>
-                        <div className="contact-name">
-                            {conversation.contact_name}
-                            <span className="platform-tag">
-                                {conversation.platform === 'whatsapp' ? <MessageCircle size={12} /> : <Instagram size={12} />}
-                                {conversation.platform}
-                            </span>
+    return (
+        <div className="window-container">
+            <div className="chat-main-area">
+                <div className="window-header">
+                    <div
+                        className="header-info"
+                        onClick={() => conversation.contact_id && navigate(`/clients/${conversation.contact_id}`)}
+                        style={{ cursor: conversation.contact_id ? 'pointer' : 'default' }}
+                    >
+                        <div className="avatar-small">
+                            {conversation.picture_url ? (
+                                <img src={conversation.picture_url} alt="" className="avatar-img" />
+                            ) : (
+                                (conversation.contact_name || '?').charAt(0)
+                            )}
                         </div>
-                        <div className="status">Online</div>
+                        <div>
+                            <div className="contact-name">
+                                {conversation.contact_name}
+                                <span className="platform-tag">
+                                    {conversation.platform === 'whatsapp' ? <MessageCircle size={12} /> : <Instagram size={12} />}
+                                    {conversation.platform}
+                                </span>
+                            </div>
+                            <div className="status">Online</div>
+                        </div>
+                    </div>
+                    <div className="header-actions">
+                        <button className="icon-btn" onClick={() => setShowInfo(!showInfo)} title="Informações do contato">
+                            <Info size={20} />
+                        </button>
                     </div>
                 </div>
-                <div className="header-actions">
-                    <button className="icon-btn" onClick={() => setShowInfo(!showInfo)} title="Informações do contato">
-                        <Info size={20} />
-                    </button>
-                </div>
-            </div>
 
-            <div className="messages-body" ref={bodyRef}>
-                {messages.map((msg, index) => {
-                    const isLastMsg = index === messages.length - 1;
-                    const replyData = msg.metadata?.reply_to;
+                <div className="messages-body" ref={bodyRef}>
+                    {messages.map((msg, index) => {
+                        const isLastMsg = index === messages.length - 1;
+                        const replyData = msg.metadata?.reply_to;
 
-                    // Robust Media Detection
-                    const content = msg.content || '';
+                        // Robust Media Detection
+                        const content = msg.content || '';
 
-                    // Prioritize database media_type/url
-                    const mediaType = msg.media_type || msg.metadata?.type;
-                    const mediaUrl = msg.media_url || (mediaType && mediaType !== 'text' ? msg.content : null);
+                        // Prioritize database media_type/url
+                        const mediaType = msg.media_type || msg.metadata?.type;
+                        const mediaUrl = msg.media_url || (mediaType && mediaType !== 'text' ? msg.content : null);
 
-                    const isAudio = mediaType === 'audio' ||
-                        (!mediaType && content.match(/\.(mp3|mp4|webm|m4a|ogg|opus)(\?.*)?$/i));
+                        const isAudio = mediaType === 'audio' ||
+                            (!mediaType && content.match(/\.(mp3|mp4|webm|m4a|ogg|opus)(\?.*)?$/i));
 
-                    const isImage = mediaType === 'image' ||
-                        (!mediaType && content.match(/\.(jpg|jpeg|png|gif|webp)(\?.*)?$/i));
+                        const isImage = mediaType === 'image' ||
+                            (!mediaType && content.match(/\.(jpg|jpeg|png|gif|webp)(\?.*)?$/i));
 
-                    const isSticker = mediaType === 'sticker';
-                    const isGif = mediaType === 'gif';
-                    const isVideo = mediaType === 'video' || (!mediaType && content.match(/\.(mp4|mov|avi)(\?.*)?$/i));
-                    const isDocument = mediaType === 'document';
+                        const isSticker = mediaType === 'sticker';
+                        const isGif = mediaType === 'gif';
+                        const isVideo = mediaType === 'video' || (!mediaType && content.match(/\.(mp4|mov|avi)(\?.*)?$/i));
+                        const isDocument = mediaType === 'document';
 
-                    // Use mediaUrl for player/image if available, otherwise content
-                    const displaySrc = mediaUrl || content;
+                        // Use mediaUrl for player/image if available, otherwise content
+                        const displaySrc = mediaUrl || content;
 
-                    return (
-                        <React.Fragment key={msg.id}>
-                            <div className={`message-row ${msg.direction}`}>
-                                <div className="message-bubble-wrapper">
+                        return (
+                            <React.Fragment key={msg.id}>
+                                <div className={`message-row ${msg.direction}`}>
+                                    <div className="message-bubble-wrapper">
 
-                                    {isImage ? (
-                                        <div className="image-bubble">
-                                            <img
-                                                src={displaySrc}
-                                                alt="Imagem"
-                                                className="chat-image-content"
-                                                referrerPolicy="no-referrer"
-                                                onError={(e) => {
-                                                    if (msg.metadata?.thumbnail) {
-                                                        e.target.src = `data:image/jpeg;base64,${msg.metadata.thumbnail}`;
-                                                        e.target.style.filter = 'blur(4px)';
-                                                    }
-                                                }}
-                                                onClick={() => setViewerImage(displaySrc)}
-                                            />
-                                            <div className="image-meta-overlay">
-                                                <div className="msg-footer">
-                                                    <span className="time">{msg.time}</span>
-                                                    {msg.direction === 'inbound' && (
-                                                        <span className="status-icon">
-                                                            {msg.read_at ? <CheckCheck size={14} /> : <Check size={14} />}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ) : isSticker ? (
-                                        <div className="image-bubble" style={{ background: 'transparent', boxShadow: 'none' }}>
-                                            <img
-                                                src={displaySrc}
-                                                alt="Sticker"
-                                                className="chat-image-content"
-                                                style={{ maxWidth: '150px' }}
-                                            />
-                                            <div className="msg-footer" style={{ position: 'absolute', bottom: 0, right: 0, padding: '4px', background: 'rgba(0,0,0,0.5)', borderRadius: '8px' }}>
-                                                <span className="time" style={{ fontSize: '10px', color: 'white' }}>{msg.time}</span>
-                                            </div>
-                                        </div>
-                                    ) : (isGif || isVideo) ? (
-                                        <div className="message-bubble">
-                                            <video
-                                                src={displaySrc}
-                                                poster={msg.metadata?.thumbnail ? `data:image/jpeg;base64,${msg.metadata.thumbnail}` : null}
-                                                controls={!isGif}
-                                                autoPlay={isGif}
-                                                loop={isGif}
-                                                muted={isGif}
-                                                playsInline
-                                                style={{ maxWidth: '100%', borderRadius: '12px' }}
-                                            />
-                                            <div className="msg-footer">
-                                                <span className="time">{msg.time}</span>
-                                                {msg.direction === 'inbound' && (
-                                                    <span className="status-icon">
-                                                        {msg.read_at ? <CheckCheck size={14} /> : <Check size={14} />}
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ) : isDocument ? (
-                                        <div className="message-bubble" style={{ minWidth: '200px' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '4px' }}>
-                                                <div style={{ background: 'rgba(255,255,255,0.1)', padding: '10px', borderRadius: '10px' }}>
-                                                    <FileText size={24} color="var(--primary)" />
-                                                </div>
-                                                <div style={{ flex: 1, minWidth: 0 }}>
-                                                    <div style={{ fontWeight: 600, fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                        {msg.metadata?.filename || 'Arquivo'}
-                                                    </div>
-                                                    <a
-                                                        href={displaySrc}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        style={{ fontSize: '0.8rem', color: 'var(--primary)', textDecoration: 'none' }}
-                                                    >
-                                                        Baixar arquivo
-                                                    </a>
-                                                </div>
-                                            </div>
-                                            <div className="msg-footer">
-                                                <span className="time">{msg.time}</span>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="message-bubble">
-                                            {replyData && (
-                                                <div className="reply-preview-in-msg">
-                                                    <span className="reply-text-small">{replyData.content || replyData.text}</span>
-                                                </div>
-                                            )}
-
-                                            {isAudio ? (
-                                                <CustomAudioPlayer src={displaySrc} isOutbound={msg.direction === 'outbound'} />
-                                            ) : (
-                                                <div className="text-content">
-                                                    {msg.content}
+                                        {isImage ? (
+                                            <div className="image-bubble">
+                                                <img
+                                                    src={displaySrc}
+                                                    alt="Imagem"
+                                                    className="chat-image-content"
+                                                    referrerPolicy="no-referrer"
+                                                    onError={(e) => {
+                                                        if (msg.metadata?.thumbnail) {
+                                                            e.target.src = `data:image/jpeg;base64,${msg.metadata.thumbnail}`;
+                                                            e.target.style.filter = 'blur(4px)';
+                                                        }
+                                                    }}
+                                                    onClick={() => setViewerImage(displaySrc)}
+                                                />
+                                                <div className="image-meta-overlay">
                                                     <div className="msg-footer">
                                                         <span className="time">{msg.time}</span>
                                                         {msg.direction === 'inbound' && (
@@ -1291,202 +1210,282 @@ return (
                                                         )}
                                                     </div>
                                                 </div>
-                                            )}
+                                            </div>
+                                        ) : isSticker ? (
+                                            <div className="image-bubble" style={{ background: 'transparent', boxShadow: 'none' }}>
+                                                <img
+                                                    src={displaySrc}
+                                                    alt="Sticker"
+                                                    className="chat-image-content"
+                                                    style={{ maxWidth: '150px' }}
+                                                />
+                                                <div className="msg-footer" style={{ position: 'absolute', bottom: 0, right: 0, padding: '4px', background: 'rgba(0,0,0,0.5)', borderRadius: '8px' }}>
+                                                    <span className="time" style={{ fontSize: '10px', color: 'white' }}>{msg.time}</span>
+                                                </div>
+                                            </div>
+                                        ) : (isGif || isVideo) ? (
+                                            <div className="message-bubble">
+                                                <video
+                                                    src={displaySrc}
+                                                    poster={msg.metadata?.thumbnail ? `data:image/jpeg;base64,${msg.metadata.thumbnail}` : null}
+                                                    controls={!isGif}
+                                                    autoPlay={isGif}
+                                                    loop={isGif}
+                                                    muted={isGif}
+                                                    playsInline
+                                                    style={{ maxWidth: '100%', borderRadius: '12px' }}
+                                                />
+                                                <div className="msg-footer">
+                                                    <span className="time">{msg.time}</span>
+                                                    {msg.direction === 'inbound' && (
+                                                        <span className="status-icon">
+                                                            {msg.read_at ? <CheckCheck size={14} /> : <Check size={14} />}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ) : isDocument ? (
+                                            <div className="message-bubble" style={{ minWidth: '200px' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '4px' }}>
+                                                    <div style={{ background: 'rgba(255,255,255,0.1)', padding: '10px', borderRadius: '10px' }}>
+                                                        <FileText size={24} color="var(--primary)" />
+                                                    </div>
+                                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                                        <div style={{ fontWeight: 600, fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                            {msg.metadata?.filename || 'Arquivo'}
+                                                        </div>
+                                                        <a
+                                                            href={displaySrc}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            style={{ fontSize: '0.8rem', color: 'var(--primary)', textDecoration: 'none' }}
+                                                        >
+                                                            Baixar arquivo
+                                                        </a>
+                                                    </div>
+                                                </div>
+                                                <div className="msg-footer">
+                                                    <span className="time">{msg.time}</span>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="message-bubble">
+                                                {replyData && (
+                                                    <div className="reply-preview-in-msg">
+                                                        <span className="reply-text-small">{replyData.content || replyData.text}</span>
+                                                    </div>
+                                                )}
+
+                                                {isAudio ? (
+                                                    <CustomAudioPlayer src={displaySrc} isOutbound={msg.direction === 'outbound'} />
+                                                ) : (
+                                                    <div className="text-content">
+                                                        {msg.content}
+                                                        <div className="msg-footer">
+                                                            <span className="time">{msg.time}</span>
+                                                            {msg.direction === 'inbound' && (
+                                                                <span className="status-icon">
+                                                                    {msg.read_at ? <CheckCheck size={14} /> : <Check size={14} />}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </React.Fragment>
+                        );
+                    })}
+                    <div ref={messagesEndRef} />
+                </div >
+
+                {
+                    replyTo && (
+                        <div className="reply-bar">
+                            <div className="reply-content">
+                                <span className="reply-label">Respondendo a</span>
+                                <span className="reply-text">{replyTo.content}</span>
+                            </div>
+                            <button className="close-reply" onClick={() => setReplyTo(null)}>
+                                <X size={16} />
+                            </button>
+                        </div>
+                    )
+                }
+
+                <div className="input-area-wrapper">
+                    {isRecording ? (
+                        <div className="recording-overlay">
+                            <div className="recording-info">
+                                <div className="recording-dot"></div>
+                                <span className="recording-timer">{formatTime(recordingTime)}</span>
+                                <div className="recording-visualizer" style={{ flex: 1, height: '40px', display: 'flex', alignItems: 'center', marginLeft: '1.5rem', minWidth: '100px' }}>
+                                    <canvas ref={visualizerCanvasRef} width="300" height="50" style={{ width: '100%', height: '100%' }} />
+                                </div>
+                            </div>
+                            <div className="recording-actions">
+                                <button className="record-btn-action discard" onClick={discardRecording}>
+                                    <Trash2 size={20} />
+                                </button>
+                                <button className="record-btn-action pause" onClick={isPaused ? resumeRecording : pauseRecording}>
+                                    {isPaused ? <Play size={20} /> : <Pause size={20} />}
+                                </button>
+                                <button className="record-btn-action stop" onClick={stopRecording}>
+                                    <Square size={20} />
+                                </button>
+                            </div>
+                        </div>
+                    ) : audioBlob ? (
+                        <div className="audio-preview-bar">
+                            <div className="preview-info">
+                                <Mic size={16} />
+                                <span>Áudio pronto para enviar</span>
+                            </div>
+                            <div className="preview-actions">
+                                <button className="record-btn-action discard" onClick={() => setAudioBlob(null)}>
+                                    <Trash2 size={20} />
+                                </button>
+                                <button className="send-btn" onClick={() => handleSend(null, 'audio')}>
+                                    <Send size={18} />
+                                </button>
+                            </div>
+                        </div>
+                    ) : videoFile ? (
+                        <div className="audio-preview-bar">
+                            <div className="preview-info">
+                                <span style={{ marginRight: '8px', fontSize: '1.2rem' }}>🎥</span>
+                                <span>Vídeo selecionado</span>
+                            </div>
+                            <div className="preview-actions">
+                                <button className="record-btn-action discard" onClick={() => { setVideoFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}>
+                                    <Trash2 size={20} />
+                                </button>
+                                <button className="send-btn" onClick={() => handleSend(null, 'video')}>
+                                    <Send size={18} />
+                                </button>
+                            </div>
+                        </div>
+                    ) : documentFile ? (
+                        <div className="audio-preview-bar">
+                            <div className="preview-info">
+                                <FileText size={16} />
+                                <span>{documentFile.name} (Pronto para enviar)</span>
+                            </div>
+                            <div className="preview-actions">
+                                <button className="record-btn-action discard" onClick={() => { setDocumentFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}>
+                                    <Trash2 size={20} />
+                                </button>
+                                <button className="send-btn" onClick={() => handleSend(null, 'document')}>
+                                    <Send size={18} />
+                                </button>
+                            </div>
+                        </div>
+                    ) : imageFile ? (
+                        <div className="audio-preview-bar">
+                            <div className="preview-info">
+                                <ImageIcon size={16} />
+                                <span>Imagem selecionada</span>
+                            </div>
+                            <div className="preview-actions">
+                                <button className="record-btn-action discard" onClick={() => { setImageFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}>
+                                    <Trash2 size={20} />
+                                </button>
+                                <button className="send-btn" onClick={() => handleSend(null, 'image')}>
+                                    <Send size={18} />
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <form className="input-area" onSubmit={(e) => handleSend(e)}>
+                            <input
+                                type="file"
+                                accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip"
+                                style={{ display: 'none' }}
+                                ref={fileInputRef}
+                                onChange={handleImageSelect}
+                            />
+
+                            <div className="input-left-actions">
+                                <button type="button" className="mic-btn" onClick={() => fileInputRef.current?.click()} title="Anexar imagem">
+                                    <Plus size={24} />
+                                </button>
+
+                                <div className="emoji-picker-container" ref={emojiPickerRef}>
+                                    <button
+                                        type="button"
+                                        className="emoji-trigger-btn"
+                                        onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                                        title="Emoji"
+                                    >
+                                        <Smile size={24} />
+                                    </button>
+
+                                    {showEmojiPicker && (
+                                        <div className="emoji-popup">
+                                            <div className="emoji-grid">
+                                                {COMMON_EMOJIS.map((emoji, index) => (
+                                                    <button
+                                                        key={index}
+                                                        type="button"
+                                                        className="emoji-select-btn"
+                                                        onClick={() => addEmoji(emoji)}
+                                                    >
+                                                        {emoji}
+                                                    </button>
+                                                ))}
+                                            </div>
                                         </div>
                                     )}
                                 </div>
                             </div>
-                        </React.Fragment>
-                    );
-                })}
-                <div ref={messagesEndRef} />
-            </div >
 
-            {
-                replyTo && (
-                    <div className="reply-bar">
-                        <div className="reply-content">
-                            <span className="reply-label">Respondendo a</span>
-                            <span className="reply-text">{replyTo.content}</span>
-                        </div>
-                        <button className="close-reply" onClick={() => setReplyTo(null)}>
-                            <X size={16} />
-                        </button>
-                    </div>
-                )
-            }
-
-            <div className="input-area-wrapper">
-                {isRecording ? (
-                    <div className="recording-overlay">
-                        <div className="recording-info">
-                            <div className="recording-dot"></div>
-                            <span className="recording-timer">{formatTime(recordingTime)}</span>
-                            <div className="recording-visualizer" style={{ flex: 1, height: '40px', display: 'flex', alignItems: 'center', marginLeft: '1.5rem', minWidth: '100px' }}>
-                                <canvas ref={visualizerCanvasRef} width="300" height="50" style={{ width: '100%', height: '100%' }} />
-                            </div>
-                        </div>
-                        <div className="recording-actions">
-                            <button className="record-btn-action discard" onClick={discardRecording}>
-                                <Trash2 size={20} />
-                            </button>
-                            <button className="record-btn-action pause" onClick={isPaused ? resumeRecording : pauseRecording}>
-                                {isPaused ? <Play size={20} /> : <Pause size={20} />}
-                            </button>
-                            <button className="record-btn-action stop" onClick={stopRecording}>
-                                <Square size={20} />
-                            </button>
-                        </div>
-                    </div>
-                ) : audioBlob ? (
-                    <div className="audio-preview-bar">
-                        <div className="preview-info">
-                            <Mic size={16} />
-                            <span>Áudio pronto para enviar</span>
-                        </div>
-                        <div className="preview-actions">
-                            <button className="record-btn-action discard" onClick={() => setAudioBlob(null)}>
-                                <Trash2 size={20} />
-                            </button>
-                            <button className="send-btn" onClick={() => handleSend(null, 'audio')}>
-                                <Send size={18} />
-                            </button>
-                        </div>
-                    </div>
-                ) : videoFile ? (
-                    <div className="audio-preview-bar">
-                        <div className="preview-info">
-                            <span style={{ marginRight: '8px', fontSize: '1.2rem' }}>🎥</span>
-                            <span>Vídeo selecionado</span>
-                        </div>
-                        <div className="preview-actions">
-                            <button className="record-btn-action discard" onClick={() => { setVideoFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}>
-                                <Trash2 size={20} />
-                            </button>
-                            <button className="send-btn" onClick={() => handleSend(null, 'video')}>
-                                <Send size={18} />
-                            </button>
-                        </div>
-                    </div>
-                ) : documentFile ? (
-                    <div className="audio-preview-bar">
-                        <div className="preview-info">
-                            <FileText size={16} />
-                            <span>{documentFile.name} (Pronto para enviar)</span>
-                        </div>
-                        <div className="preview-actions">
-                            <button className="record-btn-action discard" onClick={() => { setDocumentFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}>
-                                <Trash2 size={20} />
-                            </button>
-                            <button className="send-btn" onClick={() => handleSend(null, 'document')}>
-                                <Send size={18} />
-                            </button>
-                        </div>
-                    </div>
-                ) : imageFile ? (
-                    <div className="audio-preview-bar">
-                        <div className="preview-info">
-                            <ImageIcon size={16} />
-                            <span>Imagem selecionada</span>
-                        </div>
-                        <div className="preview-actions">
-                            <button className="record-btn-action discard" onClick={() => { setImageFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}>
-                                <Trash2 size={20} />
-                            </button>
-                            <button className="send-btn" onClick={() => handleSend(null, 'image')}>
-                                <Send size={18} />
-                            </button>
-                        </div>
-                    </div>
-                ) : (
-                    <form className="input-area" onSubmit={(e) => handleSend(e)}>
-                        <input
-                            type="file"
-                            accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip"
-                            style={{ display: 'none' }}
-                            ref={fileInputRef}
-                            onChange={handleImageSelect}
-                        />
-
-                        <div className="input-left-actions">
-                            <button type="button" className="mic-btn" onClick={() => fileInputRef.current?.click()} title="Anexar imagem">
-                                <Plus size={24} />
-                            </button>
-
-                            <div className="emoji-picker-container" ref={emojiPickerRef}>
-                                <button
-                                    type="button"
-                                    className="emoji-trigger-btn"
-                                    onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                                    title="Emoji"
-                                >
-                                    <Smile size={24} />
-                                </button>
-
-                                {showEmojiPicker && (
-                                    <div className="emoji-popup">
-                                        <div className="emoji-grid">
-                                            {COMMON_EMOJIS.map((emoji, index) => (
-                                                <button
-                                                    key={index}
-                                                    type="button"
-                                                    className="emoji-select-btn"
-                                                    onClick={() => addEmoji(emoji)}
-                                                >
-                                                    {emoji}
-                                                </button>
-                                            ))}
-                                        </div>
+                            <div className="input-wrapper">
+                                {suggestions.length > 0 && (
+                                    <div className="suggestions-popover">
+                                        {suggestions.map((s, i) => (
+                                            <div
+                                                key={i}
+                                                className={`suggestion-item ${i === selectedIndex ? 'active' : ''}`}
+                                                data-type={s.type}
+                                                onClick={() => applySuggestion(s)}
+                                            >
+                                                <span className="suggestion-label">{s.label}</span>
+                                                {s.type !== 'action' && <span className="suggestion-preview">{s.value}</span>}
+                                            </div>
+                                        ))}
                                     </div>
                                 )}
+                                <textarea
+                                    ref={textareaRef}
+                                    placeholder="Digite uma mensagem"
+                                    value={messageInput}
+                                    onChange={handleInput}
+                                    onKeyDown={handleKeyDown}
+                                    rows={1}
+                                    maxLength={1000}
+                                />
                             </div>
-                        </div>
 
-                        <div className="input-wrapper">
-                            {suggestions.length > 0 && (
-                                <div className="suggestions-popover">
-                                    {suggestions.map((s, i) => (
-                                        <div
-                                            key={i}
-                                            className={`suggestion-item ${i === selectedIndex ? 'active' : ''}`}
-                                            data-type={s.type}
-                                            onClick={() => applySuggestion(s)}
-                                        >
-                                            <span className="suggestion-label">{s.label}</span>
-                                            {s.type !== 'action' && <span className="suggestion-preview">{s.value}</span>}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                            <textarea
-                                ref={textareaRef}
-                                placeholder="Digite uma mensagem"
-                                value={messageInput}
-                                onChange={handleInput}
-                                onKeyDown={handleKeyDown}
-                                rows={1}
-                                maxLength={1000}
-                            />
-                        </div>
-
-                        <div className="input-right-actions">
-                            {!messageInput.trim() ? (
-                                <button type="button" className="mic-btn" onClick={startRecording} title="Gravar áudio">
-                                    <Mic size={24} />
-                                </button>
-                            ) : (
-                                <button type="submit" className="send-btn-wa" title="Enviar">
-                                    <Send size={22} />
-                                </button>
-                            )}
-                        </div>
-                    </form>
-                )}
+                            <div className="input-right-actions">
+                                {!messageInput.trim() ? (
+                                    <button type="button" className="mic-btn" onClick={startRecording} title="Gravar áudio">
+                                        <Mic size={24} />
+                                    </button>
+                                ) : (
+                                    <button type="submit" className="send-btn-wa" title="Enviar">
+                                        <Send size={22} />
+                                    </button>
+                                )}
+                            </div>
+                        </form>
+                    )}
+                </div>
             </div>
-        </div>
-        {showInfo && <ChatInfoPanel conversation={conversation} onClose={() => setShowInfo(false)} />}
+            {showInfo && <ChatInfoPanel conversation={conversation} onClose={() => setShowInfo(false)} />}
 
-        <style>{`
+            <style>{`
                 .window-container { display: flex; flex-direction: row; height: 100%; overflow: hidden; }
                 .chat-main-area { display: flex; flex-direction: column; flex: 1; height: 100%; min-width: 0; position: relative; }
 
@@ -2014,129 +2013,129 @@ return (
                 }
             `}</style>
 
-        {
-            showTemplateManager && (
-                <div className="template-modal-overlay" onClick={() => setShowTemplateManager(false)}>
-                    <div className="template-modal" onClick={(e) => e.stopPropagation()}>
-                        <div className="modal-header">
-                            <div>
-                                <h3 style={{ margin: 0, fontSize: '1.2rem' }}>Gestão de Modelos</h3>
-                                <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', opacity: 0.6 }}>Use / para acessar rápido no chat</p>
+            {
+                showTemplateManager && (
+                    <div className="template-modal-overlay" onClick={() => setShowTemplateManager(false)}>
+                        <div className="template-modal" onClick={(e) => e.stopPropagation()}>
+                            <div className="modal-header">
+                                <div>
+                                    <h3 style={{ margin: 0, fontSize: '1.2rem' }}>Gestão de Modelos</h3>
+                                    <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', opacity: 0.6 }}>Use / para acessar rápido no chat</p>
+                                </div>
+                                <button className="close-btn" onClick={() => setShowTemplateManager(false)}>
+                                    <X size={20} />
+                                </button>
                             </div>
-                            <button className="close-btn" onClick={() => setShowTemplateManager(false)}>
-                                <X size={20} />
-                            </button>
-                        </div>
 
-                        <div className="modal-body">
-                            {/* Left Side: Form */}
-                            <div className="template-form-section">
-                                <h4 className="section-title">{editingTemplate ? 'EDITAR MODELO' : 'NOVO MODELO'}</h4>
+                            <div className="modal-body">
+                                {/* Left Side: Form */}
+                                <div className="template-form-section">
+                                    <h4 className="section-title">{editingTemplate ? 'EDITAR MODELO' : 'NOVO MODELO'}</h4>
 
-                                <div className="form-group">
-                                    <input
-                                        type="text"
-                                        className="form-input"
-                                        placeholder="Título (ex: saudacao)"
-                                        value={templateForm.title}
-                                        onChange={e => setTemplateForm({ ...templateForm, title: e.target.value })}
-                                    />
-                                </div>
-
-                                <div className="form-group" style={{ flex: 1 }}>
-                                    <textarea
-                                        className="form-textarea"
-                                        placeholder="Conteúdo da mensagem..."
-                                        value={templateForm.content}
-                                        onChange={e => setTemplateForm({ ...templateForm, content: e.target.value })}
-                                    />
-                                </div>
-
-                                <div className="form-footer">
-                                    <label className="checkbox-label">
+                                    <div className="form-group">
                                         <input
-                                            type="checkbox"
-                                            checked={templateForm.is_public}
-                                            onChange={e => setTemplateForm({ ...templateForm, is_public: e.target.checked })}
+                                            type="text"
+                                            className="form-input"
+                                            placeholder="Título (ex: saudacao)"
+                                            value={templateForm.title}
+                                            onChange={e => setTemplateForm({ ...templateForm, title: e.target.value })}
                                         />
-                                        <span>Público para todos</span>
-                                    </label>
+                                    </div>
 
-                                    <div className="button-group">
-                                        {editingTemplate && (
-                                            <button className="btn btn-secondary" onClick={() => saveTemplate(true)}>
-                                                <Copy size={16} /> Duplicar
+                                    <div className="form-group" style={{ flex: 1 }}>
+                                        <textarea
+                                            className="form-textarea"
+                                            placeholder="Conteúdo da mensagem..."
+                                            value={templateForm.content}
+                                            onChange={e => setTemplateForm({ ...templateForm, content: e.target.value })}
+                                        />
+                                    </div>
+
+                                    <div className="form-footer">
+                                        <label className="checkbox-label">
+                                            <input
+                                                type="checkbox"
+                                                checked={templateForm.is_public}
+                                                onChange={e => setTemplateForm({ ...templateForm, is_public: e.target.checked })}
+                                            />
+                                            <span>Público para todos</span>
+                                        </label>
+
+                                        <div className="button-group">
+                                            {editingTemplate && (
+                                                <button className="btn btn-secondary" onClick={() => saveTemplate(true)}>
+                                                    <Copy size={16} /> Duplicar
+                                                </button>
+                                            )}
+                                            <button className="btn btn-primary" onClick={() => saveTemplate(false)}>
+                                                <Save size={16} /> {editingTemplate ? 'Salvar' : 'Criar'}
                                             </button>
-                                        )}
-                                        <button className="btn btn-primary" onClick={() => saveTemplate(false)}>
-                                            <Save size={16} /> {editingTemplate ? 'Salvar' : 'Criar'}
+                                        </div>
+                                    </div>
+
+                                    {editingTemplate && (
+                                        <button className="btn btn-danger" onClick={async () => {
+                                            if (confirm('Excluir este modelo?')) {
+                                                await supabase.from('internal_message_templates').delete().eq('id', editingTemplate.id);
+                                                setEditingTemplate(null);
+                                                setTemplateForm({ title: '', content: '', is_public: true });
+                                                fetchTemplates();
+                                            }
+                                        }}>
+                                            <Trash2 size={16} /> Excluir
+                                        </button>
+                                    )}
+                                </div>
+
+                                {/* Right Side: List */}
+                                <div className="template-list-section">
+                                    <div className="list-header">
+                                        <h4 className="section-title">MODELOS SALVOS</h4>
+                                        <button
+                                            className="btn-icon-add"
+                                            onClick={() => {
+                                                setEditingTemplate(null);
+                                                setTemplateForm({ title: '', content: '', is_public: true });
+                                            }}
+                                            title="Novo modelo"
+                                        >
+                                            <Plus size={18} />
                                         </button>
                                     </div>
-                                </div>
 
-                                {editingTemplate && (
-                                    <button className="btn btn-danger" onClick={async () => {
-                                        if (confirm('Excluir este modelo?')) {
-                                            await supabase.from('internal_message_templates').delete().eq('id', editingTemplate.id);
-                                            setEditingTemplate(null);
-                                            setTemplateForm({ title: '', content: '', is_public: true });
-                                            fetchTemplates();
-                                        }
-                                    }}>
-                                        <Trash2 size={16} /> Excluir
-                                    </button>
-                                )}
-                            </div>
-
-                            {/* Right Side: List */}
-                            <div className="template-list-section">
-                                <div className="list-header">
-                                    <h4 className="section-title">MODELOS SALVOS</h4>
-                                    <button
-                                        className="btn-icon-add"
-                                        onClick={() => {
-                                            setEditingTemplate(null);
-                                            setTemplateForm({ title: '', content: '', is_public: true });
-                                        }}
-                                        title="Novo modelo"
-                                    >
-                                        <Plus size={18} />
-                                    </button>
-                                </div>
-
-                                <div className="templates-scroll">
-                                    {templates.length === 0 ? (
-                                        <div className="empty-state">
-                                            <p>Nenhum modelo criado ainda.</p>
-                                            <p style={{ fontSize: '0.85rem', opacity: 0.6 }}>Crie seu primeiro modelo ao lado!</p>
-                                        </div>
-                                    ) : (
-                                        templates.map(t => (
-                                            <div
-                                                key={t.id}
-                                                className={`template-card ${editingTemplate?.id === t.id ? 'active' : ''}`}
-                                                onClick={() => {
-                                                    setEditingTemplate(t);
-                                                    setTemplateForm({ title: t.title, content: t.content, is_public: t.is_public });
-                                                }}
-                                            >
-                                                <div className="template-card-header">
-                                                    <span className="template-card-title">/{t.title}</span>
-                                                    {t.is_public ? <Globe size={14} /> : <Lock size={14} />}
-                                                </div>
-                                                <p className="template-card-content">{t.content}</p>
+                                    <div className="templates-scroll">
+                                        {templates.length === 0 ? (
+                                            <div className="empty-state">
+                                                <p>Nenhum modelo criado ainda.</p>
+                                                <p style={{ fontSize: '0.85rem', opacity: 0.6 }}>Crie seu primeiro modelo ao lado!</p>
                                             </div>
-                                        ))
-                                    )}
+                                        ) : (
+                                            templates.map(t => (
+                                                <div
+                                                    key={t.id}
+                                                    className={`template-card ${editingTemplate?.id === t.id ? 'active' : ''}`}
+                                                    onClick={() => {
+                                                        setEditingTemplate(t);
+                                                        setTemplateForm({ title: t.title, content: t.content, is_public: t.is_public });
+                                                    }}
+                                                >
+                                                    <div className="template-card-header">
+                                                        <span className="template-card-title">/{t.title}</span>
+                                                        {t.is_public ? <Globe size={14} /> : <Lock size={14} />}
+                                                    </div>
+                                                    <p className="template-card-content">{t.content}</p>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            )
-        }
+                )
+            }
 
-        <style>{`
+            <style>{`
                 /* ===== TEMPLATE MODAL ===== */
                 .template-modal-overlay {
                     position: fixed;
@@ -2454,14 +2453,14 @@ return (
                     overflow: hidden;
                 }
             `}</style>
-        {viewerImage && (
-            <ImageZoomViewer
-                src={viewerImage}
-                onClose={() => setViewerImage(null)}
-            />
-        )}
-    </div >
-);
+            {viewerImage && (
+                <ImageZoomViewer
+                    src={viewerImage}
+                    onClose={() => setViewerImage(null)}
+                />
+            )}
+        </div >
+    );
 };
 
 export default ChatWindow;
