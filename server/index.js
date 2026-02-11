@@ -207,12 +207,14 @@ app.post('/api/webhooks/wapi-received', async (req, res) => {
             mediaType = 'image';
             content = msgSource.imageMessage.caption || '📷 Imagem';
             mediaUrl = msgSource.imageMessage.url || msgSource.imageMessage.directPath || null;
-            // Sometimes it's base64 in jpegThumbnail, but usually url is better. 
-            // W-API often returns base64 in a different way or needs configuration.
+            metadataUpdate.thumbnail = msgSource.imageMessage.jpegThumbnail;
+            metadataUpdate.mimetype = msgSource.imageMessage.mimetype;
         } else if (msgSource.videoMessage) {
             mediaType = msgSource.videoMessage.gifPlayback ? 'gif' : 'video';
             content = msgSource.videoMessage.caption || (mediaType === 'gif' ? '🎞️ GIF' : '🎥 Vídeo');
             mediaUrl = msgSource.videoMessage.url || msgSource.videoMessage.directPath || null;
+            metadataUpdate.thumbnail = msgSource.videoMessage.jpegThumbnail;
+            metadataUpdate.mimetype = msgSource.videoMessage.mimetype;
         } else if (msgSource.audioMessage) {
             mediaType = 'audio';
             content = '🎵 Áudio';
@@ -312,7 +314,8 @@ app.post('/api/webhooks/wapi-received', async (req, res) => {
                 external_id: messageId,
                 status: isFromMe ? 'sent' : 'delivered',
                 media_url: mediaUrl,
-                media_type: mediaType
+                media_type: mediaType,
+                metadata: metadataUpdate
             }]);
 
         if (msgError) throw msgError;

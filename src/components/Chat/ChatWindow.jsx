@@ -1040,6 +1040,13 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
                                                     src={displaySrc}
                                                     alt="Imagem"
                                                     className="chat-image-content"
+                                                    referrerPolicy="no-referrer"
+                                                    onError={(e) => {
+                                                        if (msg.metadata?.thumbnail) {
+                                                            e.target.src = `data:image/jpeg;base64,${msg.metadata.thumbnail}`;
+                                                            e.target.style.filter = 'blur(4px)';
+                                                        }
+                                                    }}
                                                     onClick={() => window.open(displaySrc, '_blank')}
                                                 />
                                                 <div className="image-meta-overlay">
@@ -1069,6 +1076,7 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
                                             <div className="message-bubble">
                                                 <video
                                                     src={displaySrc}
+                                                    poster={msg.metadata?.thumbnail ? `data:image/jpeg;base64,${msg.metadata.thumbnail}` : null}
                                                     controls={!isGif}
                                                     autoPlay={isGif}
                                                     loop={isGif}
