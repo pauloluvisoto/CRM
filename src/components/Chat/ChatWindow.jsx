@@ -466,9 +466,15 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
             setMessages(prev => prev.map(m => (m.direction === 'inbound' && !m.read_at) ? { ...m, read_at: now } : m));
 
             // 2. Mark as read in WhatsApp API
+            // 2. Mark as read in WhatsApp API
             if (conversation.platform === 'whatsapp' && conversation.external_id) {
-                // We send the phone number to mark the chat as read
-                wApi.readMessage(conversation.external_id).catch(err => console.error('Failed to mark as read in WA:', err));
+                // Find the last inbound message with an ID to mark as read (which usually marks all previous as read)
+                const lastInbound = [...messages].reverse().find(m => m.direction === 'inbound' && m.external_id);
+
+                if (lastInbound && lastInbound.external_id) {
+                    wApi.readMessage(conversation.external_id, lastInbound.external_id)
+                        .catch(err => console.error('Failed to mark as read in WA:', err));
+                }
             }
         }
     };
