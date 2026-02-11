@@ -118,7 +118,140 @@ const CustomAudioPlayer = ({ src, isOutbound }) => {
     );
 };
 
+const ImageZoomViewer = ({ src, onClose }) => {
+    const [scale, setScale] = useState(1);
+    const [position, setPosition] = useState({ x: 0, y: 0 });
+    const [isDragging, setIsDragging] = useState(false);
+    const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+    const handleWheel = (e) => {
+        const delta = e.deltaY > 0 ? -0.2 : 0.2;
+        setScale(prev => Math.min(Math.max(0.5, prev + delta), 5));
+    };
+
+    const handleMouseDown = (e) => {
+        e.preventDefault();
+        setIsDragging(true);
+        setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
+    };
+
+    const handleMouseMove = (e) => {
+        if (!isDragging) return;
+        setPosition({
+            x: e.clientX - dragStart.x,
+            y: e.clientY - dragStart.y
+        });
+    };
+
+    const handleMouseUp = () => {
+        setIsDragging(false);
+    };
+
+    const reset = () => {
+        setScale(1);
+        setPosition({ x: 0, y: 0 });
+    };
+
+    return (
+        <div className="image-zoom-overlay" onClick={onClose}>
+            <div className="viewer-controls">
+                <button onClick={(e) => { e.stopPropagation(); reset(); }} className="viewer-btn">Resetar</button>
+                <button onClick={(e) => { e.stopPropagation(); onClose(); }} className="viewer-btn close">
+                    <X size={20} />
+                </button>
+            </div>
+            <div
+                className="viewer-content"
+                onClick={(e) => e.stopPropagation()}
+                onWheel={handleWheel}
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onMouseLeave={handleMouseUp}
+            >
+                <img
+                    src={src}
+                    alt="Zoom"
+                    style={{
+                        transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
+                        cursor: isDragging ? 'grabbing' : 'grab',
+                        transition: isDragging ? 'none' : 'transform 0.1s ease-out',
+                        maxHeight: '90vh',
+                        maxWidth: '90vw',
+                        objectFit: 'contain'
+                    }}
+                    draggable="false"
+                />
+            </div>
+            <style>{`
+                .image-zoom-overlay {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100vw;
+                    height: 100vh;
+                    background: rgba(0, 0, 0, 0.9);
+                    backdrop-filter: blur(10px);
+                    z-index: 9999;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    overflow: hidden;
+                    animation: fadeIn 0.3s ease;
+                }
+                @keyframes fadeIn {
+                    from { opacity: 0; }
+                    to { opacity: 1; }
+                }
+                .viewer-content {
+                    width: 100%;
+                    height: 100%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    touch-action: none;
+                }
+                .viewer-controls {
+                    position: absolute;
+                    top: 24px;
+                    right: 24px;
+                    display: flex;
+                    gap: 12px;
+                    z-index: 10000;
+                }
+                .viewer-btn {
+                    background: rgba(255, 255, 255, 0.1);
+                    border: 1px solid rgba(255, 255, 255, 0.2);
+                    color: white;
+                    padding: 10px 20px;
+                    border-radius: 12px;
+                    cursor: pointer;
+                    backdrop-filter: blur(10px);
+                    transition: all 0.2s;
+                    font-weight: 600;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                .viewer-btn:hover {
+                    background: rgba(255, 255, 255, 0.2);
+                    transform: translateY(-2px);
+                }
+                .viewer-btn.close {
+                    background: rgba(239, 68, 68, 0.2);
+                    border-color: rgba(239, 68, 68, 0.4);
+                    padding: 10px;
+                }
+                .viewer-btn.close:hover {
+                    background: rgba(239, 68, 68, 0.4);
+                }
+            `}</style>
+        </div>
+    );
+};
+
 const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
+
     const navigate = useNavigate();
     const [messageInput, setMessageInput] = useState('');
     const [messages, setMessages] = useState([]);
@@ -132,6 +265,7 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
     const emojiPickerRef = useRef(null);
     const [editingTemplate, setEditingTemplate] = useState(null);
     const [templateForm, setTemplateForm] = useState({ title: '', content: '', is_public: true });
+    const [viewerImage, setViewerImage] = useState(null);
 
     // Lista de emojis comuns
     const COMMON_EMOJIS = [
@@ -1047,7 +1181,7 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
                                                             e.target.style.filter = 'blur(4px)';
                                                         }
                                                     }}
-                                                    onClick={() => window.open(displaySrc, '_blank')}
+                                                    onClick={() => setViewerImage(displaySrc)}
                                                 />
                                                 <div className="image-meta-overlay">
                                                     <div className="msg-footer">
@@ -2302,6 +2436,12 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
                     overflow: hidden;
                 }
             `}</style>
+            {viewerImage && (
+                <ImageZoomViewer
+                    src={viewerImage}
+                    onClose={() => setViewerImage(null)}
+                />
+            )}
         </div >
     );
 };
