@@ -73,6 +73,37 @@ async function rehostMedia(url, messageId, mediaType, mimetype) {
             throw new Error(`File too small (${buffer.length} bytes), likely corrupted or blocked.`);
         }
 
+        // --- Validate Magic Bytes (File Signature) ---
+        // Prevents saving encrypted/corrupted files as valid images
+        const checkMagicBytes = (buf) => {
+            if (buf.length < 4) return false;
+            const hex = buf.toString('hex', 0, 4).toUpperCase();
+
+            // JPG (FF D8 FF)
+            if (hex.startsWith('FFD8FF')) return 'jpeg';
+            // PNG (89 50 4E 47)
+            if (hex.startsWith('89504E47')) return 'png';
+            // GIF (47 49 46 38)
+            if (hex.startsWith('47494638')) return 'gif';
+            // WEBP (RIFF...WEBP) - Check bits 8-12 for WEBP
+            if (hex.startsWith('52494646') && buf.toString('utf8', 8, 12) === 'WEBP') return 'webp';
+            // MP4 (ftyp) - usually at offset 4
+            if (buf.toString('utf8', 4, 8) === 'ftyp') return 'mp4';
+            // PDF (25 50 44 46)
+            if (hex.startsWith('25504446')) return 'pdf';
+            // OGG (4F 67 67 53)
+            if (hex.startsWith('4F676753')) return 'ogg';
+
+            return null;
+        };
+
+        const detectedType = checkMagicBytes(buffer);
+        console.log(`🔍 [Media Rehost] Detected Magic Bytes Type: ${detectedType || 'UNKNOWN'} (${buffer.toString('hex', 0, 8)}...)`);
+
+        if (!detectedType && (mimetype || '').includes('image')) {
+            throw new Error(`Invalid Magic Bytes for image. Header says ${mimetype}, bytes verify failed.`);
+        }
+
         // Determine extension
         let extension = mimetype ? mimetype.split('/')[1]?.split(';')[0] : 'bin';
         if (extension === 'jpeg') extension = 'jpg';
