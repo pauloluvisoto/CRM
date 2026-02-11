@@ -1199,13 +1199,25 @@ const ChatWindow = ({ conversation, lastSelectedAt, onMessageSent }) => {
                                                     className="chat-image-content"
                                                     referrerPolicy="no-referrer"
                                                     onError={(e) => {
-                                                        if (msg.metadata?.thumbnail) {
+                                                        console.error('❌ Image Load Failed:', displaySrc);
+                                                        if (msg.metadata?.thumbnail && e.target.src !== `data:image/jpeg;base64,${msg.metadata.thumbnail}`) {
                                                             e.target.src = `data:image/jpeg;base64,${msg.metadata.thumbnail}`;
                                                             e.target.style.filter = 'blur(4px)';
                                                         }
                                                     }}
                                                     onClick={() => setViewerImage(displaySrc)}
                                                 />
+                                                {/* Debug Link */}
+                                                <a
+                                                    href={displaySrc}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    style={{ position: 'absolute', top: 5, right: 5, background: 'rgba(0,0,0,0.5)', padding: 4, borderRadius: 4, color: 'white', zIndex: 10 }}
+                                                    title={displaySrc}
+                                                >
+                                                    <Globe size={12} />
+                                                </a>
                                                 <div className="image-meta-overlay">
                                                     <div className="msg-footer">
                                                         <span className="time">{msg.time}</span>
