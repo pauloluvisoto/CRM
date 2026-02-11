@@ -32,7 +32,7 @@ app.use(express.json());
 async function getSchema() {
     // 1. Try DB
     if (supabase) {
-        const { data, error } = await supabase
+        const { data } = await supabase
             .from('app_metadata')
             .select('value')
             .eq('key', 'schema_financeiro')
@@ -71,7 +71,6 @@ async function saveSchema(newSchema) {
     try {
         fs.writeFileSync(SCHEMA_PATH, JSON.stringify(newSchema, null, 4));
     } catch (e) {
-        // Ignored in Vercel/Production if readonly
         if (!dbSuccess) throw e;
     }
 }
@@ -172,6 +171,18 @@ app.post('/api/webhooks/wapi-received', async (req, res) => {
     try {
         const { body } = req;
 
+        // 0. Logging (Diagnose connectivity & payload)
+        // We catch errors here to avoid crashing the flow if logging fails
+        let logId = null;
+        try {
+            const { data: logData } = await supabase
+                .from('webhook_logs')
+                .insert([{ payload: body, status: 'received' }])
+                .select()
+                .single();
+            logId = logData?.id;
+        } catch (e) { console.error('Logging failed:', e); }
+
         // 1. Parse Phone/Sender
         let phone = body.from || body.key?.remoteJid || body.data?.key?.remoteJid;
         if (phone && phone.includes('@')) phone = phone.split('@')[0];
@@ -185,6 +196,7 @@ app.post('/api/webhooks/wapi-received', async (req, res) => {
         const isFromMe = body.fromMe || body.key?.fromMe || body.data?.key?.fromMe;
 
         if (!phone || !content) {
+            if (logId) await supabase.from('webhook_logs').update({ status: 'ignored', error_message: 'No phone/content' }).eq('id', logId);
             return res.status(200).json({ status: 'ignored' });
         }
 
@@ -198,8 +210,12 @@ app.post('/api/webhooks/wapi-received', async (req, res) => {
             .eq('platform', 'whatsapp')
             .single();
 
+        if (convError && convError.code !== 'PGRST116') { // PGRST116 is "Row not found"
+            throw convError;
+        }
+
         if (!conversation) {
-            const { data: newConv } = await supabase
+            const { data: newConv, error: createError } = await supabase
                 .from('social_conversations')
                 .insert([{
                     platform: 'whatsapp',
@@ -210,6 +226,8 @@ app.post('/api/webhooks/wapi-received', async (req, res) => {
                 }])
                 .select()
                 .single();
+
+            if (createError) throw createError;
             conversation = newConv;
         } else {
             const updateData = {
@@ -228,7 +246,7 @@ app.post('/api/webhooks/wapi-received', async (req, res) => {
         }
 
         // 5. Insert Message
-        await supabase
+        const { error: msgError } = await supabase
             .from('social_messages')
             .insert([{
                 conversation_id: conversation.id,
@@ -238,10 +256,21 @@ app.post('/api/webhooks/wapi-received', async (req, res) => {
                 status: isFromMe ? 'sent' : 'delivered'
             }]);
 
+        if (msgError) throw msgError;
+
+        if (logId) await supabase.from('webhook_logs').update({ status: 'processed' }).eq('id', logId);
+
         res.json({ success: true });
 
     } catch (error) {
         console.error('❌ [W-API] Error processing webhook:', error);
+        try {
+            await supabase.from('webhook_logs').insert([{
+                payload: req.body,
+                status: 'error',
+                error_message: error.message
+            }]);
+        } catch (e) { }
         res.status(500).json({ error: error.message });
     }
 });
