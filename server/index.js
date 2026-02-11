@@ -54,11 +54,24 @@ async function rehostMedia(url, messageId, mediaType, mimetype) {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
             }
         });
+
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        const contentType = response.headers.get('content-type');
+        console.log(`🔍 [Media Rehost] Content-Type: ${contentType}`);
+
+        // Validate Content-Type if possible
+        if (contentType && !contentType.includes('image') && !contentType.includes('video') && !contentType.includes('audio') && !contentType.includes('application') && !contentType.includes('octet-stream')) {
+            throw new Error(`Invalid Content-Type: ${contentType}`);
+        }
 
         const blob = await response.blob();
         const arrayBuffer = await blob.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
+
+        if (buffer.length < 100) {
+            throw new Error(`File too small (${buffer.length} bytes), likely corrupted or blocked.`);
+        }
 
         // Determine extension
         let extension = mimetype ? mimetype.split('/')[1]?.split(';')[0] : 'bin';
