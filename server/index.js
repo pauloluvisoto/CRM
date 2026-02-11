@@ -184,16 +184,37 @@ app.post('/api/webhooks/wapi-received', async (req, res) => {
         } catch (e) { console.error('Logging failed:', e); }
 
         // 1. Parse Phone/Sender
-        let phone = body.from || body.key?.remoteJid || body.data?.key?.remoteJid;
-        if (phone && phone.includes('@')) phone = phone.split('@')[0];
+        // W-API format seen in logs: body.chat.id or body.sender.id
+        let phone = body.chat?.id || body.sender?.id || body.from || body.key?.remoteJid || body.data?.key?.remoteJid;
+
+        if (phone && phone.includes('@')) {
+            phone = phone.split('@')[0];
+        }
 
         // 2. Parse Content
-        let content = body.message?.conversation || body.message?.extendedTextMessage?.text || body.content || '';
-        if (!content && body.message?.imageMessage) content = '📷 Imagem';
-        if (!content && body.message?.audioMessage) content = '🎵 Áudio';
+        // W-API format seen in logs: body.msgContent
+        let content = '';
+        if (body.msgContent) {
+            content = body.msgContent.conversation ||
+                body.msgContent.extendedTextMessage?.text ||
+                '';
+            if (!content && body.msgContent.imageMessage) content = '📷 Imagem';
+            if (!content && body.msgContent.audioMessage) content = '🎵 Áudio';
+        } else {
+            // Legacy/Standard format
+            content = body.message?.conversation ||
+                body.message?.extendedTextMessage?.text ||
+                body.content ||
+                '';
+            if (!content && body.message?.imageMessage) content = '📷 Imagem';
+            if (!content && body.message?.audioMessage) content = '🎵 Áudio';
+        }
 
-        // 3. Check Direction
+        // 3. Check Direction & ID
         const isFromMe = body.fromMe || body.key?.fromMe || body.data?.key?.fromMe;
+        const messageId = body.messageId || body.key?.id || body.data?.key?.id || 'wapi-' + Date.now();
+
+        console.log(`🔍 [W-API] Parsed: Phone=${phone}, Content="${content}", ID=${messageId}, FromMe=${isFromMe}`);
 
         if (!phone || !content) {
             if (logId) await supabase.from('webhook_logs').update({ status: 'ignored', error_message: 'No phone/content' }).eq('id', logId);
@@ -252,7 +273,7 @@ app.post('/api/webhooks/wapi-received', async (req, res) => {
                 conversation_id: conversation.id,
                 content: content,
                 direction: direction,
-                external_id: body.key?.id || 'wapi-' + Date.now(),
+                external_id: messageId,
                 status: isFromMe ? 'sent' : 'delivered'
             }]);
 
