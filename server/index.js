@@ -170,6 +170,8 @@ app.post('/api/webhooks/wapi-received', async (req, res) => {
 
     try {
         const { body } = req;
+        console.log('📩 [W-API] Body Keys:', Object.keys(body));
+        console.log('📩 [W-API] Event Type:', body.event);
 
         // 0. Logging (Diagnose connectivity & payload)
         // We catch errors here to avoid crashing the flow if logging fails
@@ -181,7 +183,9 @@ app.post('/api/webhooks/wapi-received', async (req, res) => {
                 .select()
                 .single();
             logId = logData?.id;
-        } catch (e) { console.error('Logging failed:', e); }
+        } catch (e) {
+            console.error('Logging failed:', e);
+        }
 
         // 1. Parse Phone/Sender
         // W-API format seen in logs: body.chat.id or body.sender.id
@@ -196,6 +200,8 @@ app.post('/api/webhooks/wapi-received', async (req, res) => {
         let content = '';
         let mediaUrl = null;
         let mediaType = 'text';
+        let metadataUpdate = { phone: phone || '' };
+
 
         const msgSource = body.msgContent || body.message || {};
 
@@ -259,8 +265,6 @@ app.post('/api/webhooks/wapi-received', async (req, res) => {
         if (convError && convError.code !== 'PGRST116') { // PGRST116 is "Row not found"
             throw convError;
         }
-
-        const metadataUpdate = { phone: phone };
 
         if (!conversation) {
             const { data: newConv, error: createError } = await supabase
