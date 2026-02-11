@@ -16,6 +16,32 @@ const app = express();
 const PORT = 3001;
 const SCHEMA_PATH = path.join(__dirname, '..', 'schema_financeiro.json');
 
+// Initialize Storage Configuration (Auto-Create/Update Public Bucket)
+async function configureStorage() {
+    try {
+        console.log('📦 [Storage] Configuring bucket chat-media...');
+        // Try to update the bucket to be public
+        const { error } = await supabase.storage.updateBucket('chat-media', {
+            public: true,
+            fileSizeLimit: 52428800, // 50MB
+            allowedMimeTypes: ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'video/mp4', 'audio/ogg', 'audio/mpeg', 'application/pdf']
+        });
+
+        if (error) {
+            // If doesn't exist, Create
+            console.log('⚠️ [Storage] Update failed, trying creating bucket...', error.message);
+            await supabase.storage.createBucket('chat-media', {
+                public: true,
+                fileSizeLimit: 52428800
+            });
+        }
+        console.log('✅ [Storage] Bucket chat-media configured as PUBLIC.');
+    } catch (e) {
+        console.error('❌ [Storage] Configuration error:', e);
+    }
+}
+configureStorage();
+
 // Helper: Re-host media from WhatsApp to Supabase Storage
 async function rehostMedia(url, messageId, mediaType, mimetype) {
     if (!url || !url.startsWith('http')) return url;
@@ -23,7 +49,11 @@ async function rehostMedia(url, messageId, mediaType, mimetype) {
     console.log(`📥 [Media Rehost] Downloading ${mediaType} from ${url.substring(0, 50)}...`);
 
     try {
-        const response = await fetch(url);
+        const response = await fetch(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+        });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const blob = await response.blob();
@@ -373,6 +403,8 @@ app.post('/api/webhooks/wapi-received', async (req, res) => {
                 media_type: mediaType,
                 metadata: metadataUpdate
             }]);
+
+        if (mediaUrl) console.log(`💾 [DB Insert] Message with Media: ${mediaUrl}`);
 
         if (msgError) throw msgError;
 
