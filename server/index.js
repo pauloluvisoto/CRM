@@ -105,16 +105,41 @@ async function rehostMedia(url, messageId, mediaType, mimetype) {
         }
 
         // Determine extension
-        let extension = mimetype ? mimetype.split('/')[1]?.split(';')[0] : 'bin';
+        // Determine extension based on REAL content (Magic Bytes) priority
+        let extension = detectedType;
+
+        // Fallback to mimetype if magic bytes failed but we are here (e.g. text/plain or unknown binary)
+        if (!extension && mimetype) {
+            extension = mimetype.split('/')[1]?.split(';')[0];
+        }
+
+        // Fallback to URL extension
+        if (!extension && url) {
+            const urlExt = url.split('.').pop().split('?')[0];
+            if (urlExt && urlExt.length < 5) extension = urlExt;
+        }
+
+        // Defaults
+        if (!extension) extension = 'bin';
         if (extension === 'jpeg') extension = 'jpg';
-        if (mediaType === 'audio') extension = 'ogg';
+        if (mediaType === 'audio' && !extension) extension = 'ogg';
+
+        // Derive correct Content-Type for storage
+        let storageMime = mimetype || 'application/octet-stream';
+        if (extension === 'jpg' || extension === 'jpeg') storageMime = 'image/jpeg';
+        if (extension === 'png') storageMime = 'image/png';
+        if (extension === 'gif') storageMime = 'image/gif';
+        if (extension === 'webp') storageMime = 'image/webp';
+        if (extension === 'mp4') storageMime = 'video/mp4';
+        if (extension === 'pdf') storageMime = 'application/pdf';
+        if (extension === 'ogg') storageMime = 'audio/ogg';
 
         const fileName = `${mediaType}_received_${messageId}_${Date.now()}.${extension}`;
 
         const { data, error } = await supabase.storage
             .from('chat-media')
             .upload(fileName, buffer, {
-                contentType: mimetype || 'application/octet-stream',
+                contentType: storageMime,
                 upsert: true
             });
 
