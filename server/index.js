@@ -72,7 +72,7 @@ async function saveSchema(newSchema) {
         fs.writeFileSync(SCHEMA_PATH, JSON.stringify(newSchema, null, 4));
     } catch (e) {
         // Ignored in Vercel/Production if readonly
-        if (!dbSuccess) throw e; // Throw if BOTH failed
+        if (!dbSuccess) throw e;
     }
 }
 
@@ -134,32 +134,7 @@ app.post('/api/sales/register', async (req, res) => {
         const grossRevenue = FINANCE_CONSTANTS.RECEITA_FIXA_POR_VENDA + Number(commission);
         const taxes = grossRevenue * FINANCE_CONSTANTS.TAXA_IMPOSTO;
 
-        // 2. Recursive Update Helper
-        const updateCategory = (categories, name, value) => {
-            for (let cat of categories) { // Error here: categories is object in new schema? No, it's array in old schema, but new schema structure?
-                // Wait, schema structure is: "receitas": { "total": { "bp": X, "real": Y }, ... }
-                // Use strict path updates for now based on known structure
-                // But the previous code used iteration. 
-                // Let's check schema_financeiro.json structure again.
-                // It is OBJECT based: "receitas": { "fixa": { "bp": ..., "real": ... } }
-                // The previous code iterate `categories`. That implies it expects an array?
-                // `updateCategory(schema.receitas.fixa, ...)` -> `schema.receitas.fixa` is an OBJECT `{ bp, real }`. It is NOT an array.
-                // THE PREVIOUS CODE WAS PROBABLY BROKEN OR FOR A DIFFERENT SCHEMA VERSION!
-                // Wait, let's look at `schema_financeiro.json` content again.
-                // "receitas": { "fixa": { "bp": 28650, "real": 0 } ... }
-                // The previous code: `updateCategory(schema.receitas.fixa)`
-                // `for (let cat of categories)` -> iterating over an object's keys? No, `of` is for iterables.
-                // If `schema.receitas.fixa` is an object, `of` throws TypeError!
-                // So the previous code WAS BROKEN or I misread the file.
-                // Let's assume the previous code was for an ARRAY based schema, but the current file is OBJECT based.
-                // I must FIX this logic for the current OBJECT schema.
-
-                // New Logic: direct property access
-                return false;
-            }
-        };
-
-        // FIX: Direct updates for known schema structure
+        // 2. Fix Schema Updates (Direct Access)
         if (schema.receitas.fixa) schema.receitas.fixa.real = (schema.receitas.fixa.real || 0) + FINANCE_CONSTANTS.RECEITA_FIXA_POR_VENDA;
         if (schema.receitas.variavel) schema.receitas.variavel.real = (schema.receitas.variavel.real || 0) + Number(commission);
 
@@ -174,8 +149,6 @@ app.post('/api/sales/register', async (req, res) => {
         }
 
         // COGS
-        // In this schema, COGS is a single aggregated value "cogs"
-        // We can just add the sum of constants
         const totalCogsIncrease = Object.values(FINANCE_CONSTANTS.COGS).reduce((a, b) => a + b, 0);
         if (schema.custos && schema.custos.cogs) {
             schema.custos.cogs.real = (schema.custos.cogs.real || 0) + totalCogsIncrease;
@@ -194,25 +167,30 @@ app.post('/api/sales/register', async (req, res) => {
 
 // W-API Webhook
 app.post('/api/webhooks/wapi-received', async (req, res) => {
-    // ... (Keep existing logic, simplified for brevity here, but I will include full logic in the write)
     console.log('📩 [W-API] Webhook Received:', JSON.stringify(req.body, null, 2));
 
     try {
         const { body } = req;
-        // ... (Parsing logic)
+
+        // 1. Parse Phone/Sender
         let phone = body.from || body.key?.remoteJid || body.data?.key?.remoteJid;
         if (phone && phone.includes('@')) phone = phone.split('@')[0];
 
+        // 2. Parse Content
         let content = body.message?.conversation || body.message?.extendedTextMessage?.text || body.content || '';
         if (!content && body.message?.imageMessage) content = '📷 Imagem';
+        if (!content && body.message?.audioMessage) content = '🎵 Áudio';
 
+        // 3. Check Direction
         const isFromMe = body.fromMe || body.key?.fromMe || body.data?.key?.fromMe;
 
-        if (!phone || !content || isFromMe) {
+        if (!phone || !content) {
             return res.status(200).json({ status: 'ignored' });
         }
 
-        // DB Logic
+        const direction = isFromMe ? 'outbound' : 'inbound';
+
+        // 4. Find or Create Conversation
         let { data: conversation, error: convError } = await supabase
             .from('social_conversations')
             .select('*')
@@ -228,29 +206,36 @@ app.post('/api/webhooks/wapi-received', async (req, res) => {
                     external_id: phone,
                     last_message: content,
                     last_message_at: new Date().toISOString(),
-                    unread_count: 1
+                    unread_count: isFromMe ? 0 : 1
                 }])
                 .select()
                 .single();
             conversation = newConv;
         } else {
+            const updateData = {
+                last_message: content,
+                last_message_at: new Date().toISOString()
+            };
+
+            if (!isFromMe) {
+                updateData.unread_count = (conversation.unread_count || 0) + 1;
+            }
+
             await supabase
                 .from('social_conversations')
-                .update({
-                    last_message: content,
-                    last_message_at: new Date().toISOString(),
-                    unread_count: (conversation.unread_count || 0) + 1
-                })
+                .update(updateData)
                 .eq('id', conversation.id);
         }
 
+        // 5. Insert Message
         await supabase
             .from('social_messages')
             .insert([{
                 conversation_id: conversation.id,
                 content: content,
-                direction: 'inbound',
-                external_id: body.key?.id || 'wapi-' + Date.now()
+                direction: direction,
+                external_id: body.key?.id || 'wapi-' + Date.now(),
+                status: isFromMe ? 'sent' : 'delivered'
             }]);
 
         res.json({ success: true });
